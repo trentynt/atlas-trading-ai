@@ -4,7 +4,7 @@ import { NeuralGraph } from '../components/NeuralGraph'
 import { Badge, Button, Drawer, EmptyState, KeyValue, Loading, Meter, Notice, Panel, Sparkline, Spinner, StatusDot, UP, DN, ACCENT, type Tone } from '../components/ui'
 import { api, slug, useAction, useApi } from '../lib/api'
 import { useEventTrigger } from '../lib/events'
-import { AGENT_PLAIN, CHECK_PLAIN, REGIME_PLAIN, STRATEGY_PLAIN, checkName, plainReasons, shortDate, strategyName } from '../lib/explain'
+import { AGENT_PLAIN, CHECK_PLAIN, DISPOSITION, dispositionOf, REGIME_PLAIN, STRATEGY_PLAIN, checkName, plainReasons, shortDate, strategyName } from '../lib/explain'
 import { ago, money, num, pct, price, tone } from '../lib/format'
 import { symToParam } from '../lib/route'
 import { useToast } from '../lib/toast'
@@ -71,7 +71,7 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
     if (!o || !c) return 'Connecting to your research engine…'
     const fresh = markets.data?.filter((m) => !m.is_stale).length ?? 0
     const parts = [
-      `Your research team has tested ${c.experiments} strategy idea${c.experiments === 1 ? '' : 's'}${c.experiments ? `, and ${c.accepted === 0 ? 'none have' : c.accepted === 1 ? '1 has' : `${c.accepted} have`} passed every check` : ''}.`,
+      `Your research team has tested ${c.experiments} strategy idea${c.experiments === 1 ? '' : 's'}${c.experiments ? `; ${c.accepted === 0 ? 'none' : c.accepted} survived current validation${c.requires_confirmation ? ` and ${c.requires_confirmation} await${c.requires_confirmation === 1 ? 's' : ''} confirmation on new data` : ''}` : ''}.`,
       `${fresh} of ${markets.data?.length ?? 5} markets have up-to-date data.`,
       `Your paper portfolio is ${o.paper.state === 'running' ? 'running' : o.paper.state === 'halted' ? 'halted by the kill switch' : 'paused'} at ${money(o.paper.equity)}.`,
     ]
@@ -82,7 +82,7 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
   if (o?.kill_switch) attention.push({ tone: 'dn', title: 'The kill switch is engaged', body: 'Only orders that reduce exposure will be accepted.', action: ['Review risk', () => go('risk')] })
   if (running) attention.push({ tone: 'cy', title: 'Research in progress', body: `${running.message ?? 'Working'} · ${Math.round(running.progress * 100)}% complete`, action: ['Follow along', () => go('research')] })
   markets.data?.filter((m) => m.is_stale).forEach((m) => attention.push({ tone: 'am', title: `${m.symbol} data is stale`, body: `Last bar ${m.last_ts}. Strategies on it won't trade until it refreshes.`, action: ['Open market', () => go('markets', { sym: symToParam(m.symbol) })] }))
-  if (deployed.length && o?.paper.state !== 'running') attention.push({ tone: 'am', title: `${deployed.length} approved strateg${deployed.length === 1 ? 'y is' : 'ies are'} waiting`, body: 'They passed every research check, but the paper engine is paused.', action: ['Open portfolio', () => go('portfolio')] })
+  if (deployed.length && o?.paper.state !== 'running') attention.push({ tone: 'am', title: `${deployed.length} paper strateg${deployed.length === 1 ? 'y is' : 'ies are'} waiting`, body: 'They survived current validation, but the paper engine is paused.', action: ['Open portfolio', () => go('portfolio')] })
   if ((c?.risk_rejections ?? 0) > 0) attention.push({ tone: 'mute', title: `${c!.risk_rejections} paper order${c!.risk_rejections === 1 ? ' was' : 's were'} blocked by risk limits`, body: 'Every block is recorded with the rule that triggered it.', action: ['See why', () => go('risk')] })
   if (o && !o.autonomy.config.enabled) attention.push({ tone: 'mute', title: 'Autonomous research is off', body: 'Research runs only when you start it.', action: ['Set a schedule', () => go('research')] })
 
@@ -114,7 +114,7 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
             {graph.error ? <div className="p-5"><Notice tone="dn">{graph.error}</Notice></div>
               : <NeuralGraph data={graph.data} onSelect={setSel} selected={sel?.id ?? null} height={560} />}
             <div className="pointer-events-none absolute bottom-3 left-5 flex max-w-[calc(100%-140px)] flex-wrap gap-x-3.5 gap-y-1 text-[12px] text-ink-300">
-              {([['#5eead4', 'Agents'], ['#7cb4ff', 'Markets'], ['#b4a7f5', 'Strategy families'], ['#6ee7a8', 'Accepted ideas'], ['#ff6b6b', 'Rejected ideas'], ['#f5b553', 'Paper trading']] as const).map(([col, l]) => (
+              {([['#5eead4', 'Agents'], ['#7cb4ff', 'Markets'], ['#b4a7f5', 'Strategy families'], ['#6ee7a8', 'Survived'], ['#f5b553', 'Awaiting confirmation'], ['#ff6b6b', 'Rejected'], ['#f5b553', 'Paper trading'] ] as const).map(([col, l]) => (
                 <span key={l} className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: col }} />{l}</span>
               ))}
             </div>
@@ -193,11 +193,11 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
               <div className="mt-2"><Meter value={running.progress} limit={1.25} /></div>
             </div>
           ) : !reports.data ? <Loading /> : !lastCycle ? (
-            <EmptyState title="No cycles yet">A cycle proposes ideas, tests them on unseen data and explains every rejection.</EmptyState>
+            <EmptyState title="No cycles yet">A cycle proposes ideas, tests them on later data not used for fitting and explains every rejection.</EmptyState>
           ) : (
             <div className="space-y-4">
               <p className="text-[14.5px] leading-relaxed text-ink-100">
-                The last cycle ({ago(reports.data[0].created_at)}) tested <b className="text-white">{lastCycle.evaluated}</b> ideas. {lastCycle.accepted ? <><b className="text-up">{lastCycle.accepted}</b> passed every check.</> : 'None passed, which is the usual outcome.'}
+                The last cycle ({ago(reports.data[0].created_at)}) tested <b className="text-white">{lastCycle.evaluated}</b> ideas. {lastCycle.accepted ? <><b className="text-up">{lastCycle.accepted}</b> survived current validation.</> : 'None survived, which is the usual outcome.'}
               </p>
               {topReasons.length > 0 && (
                 <div>
@@ -220,7 +220,7 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
               <div>
                 <div className="num text-[30px] leading-none tracking-[-0.03em] text-white">{money(o.paper.equity)}</div>
                 <div className={`num mt-1.5 text-[13.5px] ${tone(o.paper.total_return)}`}>{pct(o.paper.total_return)} since start</div>
-                <div className="mt-4"><KeyValue rows={[['Engine', <span className="capitalize">{o.paper.state}</span>], ['Approved strategies', deployed.length], ['Open exposure', money(o.paper.gross_exposure)]]} /></div>
+                <div className="mt-4"><KeyValue rows={[['Engine', <span className="capitalize">{o.paper.state}</span>], ['Paper strategies', deployed.length], ['Open exposure', money(o.paper.gross_exposure)]]} /></div>
               </div>
               <div className="flex flex-col justify-end">
                 {equity.length > 1 ? <Sparkline values={equity} color={ACCENT} height={110} minRange={(equity[0] ?? 0) * 0.02} /> : (
@@ -266,24 +266,25 @@ function SectionTitle({ title, action, note }: { title: string; action?: [string
 
 function Finding({ e, onOpen }: { e: Experiment; onOpen: () => void }) {
   const t = e.metrics?.test ?? {}
-  const ok = e.verdict === 'accepted'
+  const d = dispositionOf(e) ?? 'rejected'
+  const ok = d === 'survived'
   const reasons = plainReasons(e.reasons, 2)
   return (
     <li>
       <button onClick={onOpen} className="group -mx-2 flex w-[calc(100%+16px)] items-start gap-4 rounded-[12px] px-2 py-3 text-left transition-colors hover:bg-white/[0.03]">
-        <span className={`mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${ok ? 'bg-up/[0.13] text-up' : 'bg-dn/[0.12] text-dn'}`}>
+        <span className={`mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${ok ? 'bg-up/[0.13] text-up' : d === 'rejected' ? 'bg-dn/[0.12] text-dn' : 'bg-am/[0.12] text-am'}`}>
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">{ok ? <path d="m4 8.5 2.5 2.5L12 5" /> : <path d="M5 5l6 6M11 5l-6 6" />}</svg>
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[14px] font-medium text-white">{strategyName(e.strategy)} <span className="font-normal text-ink-300">on</span> {e.symbol}</span>
           <span className="mt-0.5 block text-[13px] leading-snug text-ink-200">
-            {ok ? 'Passed every robustness check and was approved for paper trading.' : `Rejected — ${reasons.join(', ').toLowerCase() || 'did not meet the evidence bar'}.`}
+            {d === 'rejected' ? `Rejected — ${reasons.join(', ').toLowerCase() || 'did not meet the evidence bar'}.` : `${DISPOSITION[d].label}.`}
           </span>
           <span className="mt-1 block text-[12px] text-ink-300">{STRATEGY_PLAIN[e.strategy ?? ''] ?? ''}</span>
         </span>
         <span className="shrink-0 text-right">
           <span className={`num block text-[14px] ${tone(t.total_return)}`}>{pct(t.total_return, 1)}</span>
-          <span className="block text-[11.5px] text-ink-300">on unseen data</span>
+          <span className="block text-[11.5px] text-ink-300">selection test</span>
         </span>
       </button>
     </li>
@@ -317,25 +318,25 @@ function NodeInspector({ node, onClose, go }: { node: GraphNode | null; onClose:
               : node.kind === 'data' ? 'A versioned daily dataset. Every experiment records exactly which version it used, so results can be reproduced.'
               : node.kind === 'feature' ? 'A statistical feature computed from market data using only information available at the time.'
               : node.kind === 'run' ? 'One recorded execution of a research agent, with its inputs and outputs stored for audit.'
-              : node.kind === 'deployed' ? 'A strategy that passed every research check and now trades in the simulated paper portfolio.'
+              : node.kind === 'deployed' ? 'A strategy that survived current validation and trades in the simulated paper portfolio.'
               : node.kind === 'experiment' ? (e?.hypothesis?.rationale ?? (exp.loading ? '' : 'A strategy idea tested on historical data.'))
               : 'Part of your SIGNAL research operation.'}
           </p>
           {node.kind === 'experiment' && (exp.loading && !e ? <Loading /> : e && (
             <>
-              <div className={`rounded-[14px] px-4 py-3 ring-1 ring-inset ${e.verdict === 'accepted' ? 'bg-up/[0.07] ring-up/20' : 'bg-dn/[0.07] ring-dn/20'}`}>
-                <div className={`text-[14px] font-semibold ${e.verdict === 'accepted' ? 'text-up' : 'text-dn'}`}>{e.verdict === 'accepted' ? 'Accepted' : 'Rejected'}</div>
+              <div className={`rounded-[14px] px-4 py-3 ring-1 ring-inset ${dispositionOf(e) === 'survived' ? 'bg-up/[0.07] ring-up/20' : dispositionOf(e) === 'rejected' ? 'bg-dn/[0.07] ring-dn/20' : 'bg-am/[0.07] ring-am/20'}`}>
+                <div className={`text-[14px] font-semibold ${dispositionOf(e) === 'survived' ? 'text-up' : dispositionOf(e) === 'rejected' ? 'text-dn' : 'text-am'}`}>{DISPOSITION[dispositionOf(e) ?? 'rejected'].label}</div>
                 <ul className="mt-1 space-y-1 text-[13px] text-ink-200">
                   {(e.reasons ?? []).slice(0, 4).map((r) => <li key={r}>{CHECK_PLAIN[checkName(r)]?.long ?? r}</li>)}
-                  {e.verdict === 'accepted' && <li>It passed every blocking check, including out-of-sample, cost and multiple-testing tests.</li>}
+                  {dispositionOf(e) !== 'rejected' && <li>{DISPOSITION[dispositionOf(e) ?? 'rejected'].explain}</li>}
                 </ul>
               </div>
               <KeyValue rows={[
-                ['Return on unseen data', <span className={tone(e.metrics?.test?.total_return)}>{pct(e.metrics?.test?.total_return)}</span>],
-                ['Sharpe on unseen data', num(e.metrics?.test?.sharpe)],
+                ['Return, selection test', <span className={tone(e.metrics?.test?.total_return)}>{pct(e.metrics?.test?.total_return)}</span>],
+                ['Sharpe, selection test', num(e.metrics?.test?.sharpe)],
                 ['Worst drawdown', pct(e.metrics?.test?.max_drawdown)],
                 ['Trades', e.metrics?.test?.num_trades ?? '—'],
-                ['Ideas tried on this market', e.metrics?.n_trials ?? '—'],
+                ['Attempts on this market', e.metrics?.n_trials ? `${e.metrics.n_trials} (≈${num(e.metrics.n_eff, 0)} independent)` : '—'],
                 ['Dataset version', <span className="font-mono text-[12px]">{e.dataset_version}</span>],
               ]} />
               <p className="text-[12px] text-ink-300">Historical simulation. Passing these tests is not evidence of future profit.</p>

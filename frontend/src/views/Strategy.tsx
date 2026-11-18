@@ -29,6 +29,7 @@ export function StrategyView({ go }: ViewProps) {
   const [params, setParams] = useState<Record<string, number | boolean>>({})
   const [sizing, setSizing] = useState<'fixed_fraction' | 'vol_target'>('fixed_fraction')
   const [start, setStart] = useState('')
+  const [includeHoldout, setIncludeHoldout] = useState(false)
   const [costMult, setCostMult] = useState(1)
   const [res, setRes] = useState<BacktestPayload | null>(null)
   const [ev, setEv] = useState<any>(null)
@@ -42,7 +43,7 @@ export function StrategyView({ go }: ViewProps) {
   const friction = scaledCosts(sym, costMult)
   const bt = useAction(async () => {
     setEv(null)
-    const r = await api.post<BacktestPayload>('/backtest', { symbol: sym, strategy: key, params, sizing, start: start || null, costs: costMult === 1 ? {} : friction })
+    const r = await api.post<BacktestPayload>('/backtest', { symbol: sym, strategy: key, params, sizing, start: start || null, costs: costMult === 1 ? {} : friction, include_holdout: includeHoldout })
     setRes(r)
     resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
@@ -108,13 +109,17 @@ export function StrategyView({ go }: ViewProps) {
                       <select value={costMult} onChange={(e) => setCostMult(Number(e.target.value))}><option value={1}>Realistic</option><option value={2}>Doubled</option><option value={3}>Tripled</option><option value={0}>None (unrealistic)</option></select>
                     </Field>
                     <Field label="Start date (optional)"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
+                    <label className="col-span-full flex items-start gap-2.5 text-[13px] text-ink-200">
+                      <input type="checkbox" className="mt-0.5" checked={includeHoldout} onChange={(e) => setIncludeHoldout(e.target.checked)} />
+                      <span>Include sealed data (exploratory). Results that use sealed data are labelled as such and never count as validation evidence.</span>
+                    </label>
                   </div>
                   <p className="mt-3 text-[12px] text-ink-300">Costs per trade: spread {friction.spread_bps} bps · fee {friction.fee_bps} bps · slippage {friction.slippage_bps} bps.</p>
                 </Disclosure>
               </div>
               <div className="mt-5 flex flex-wrap gap-2">
                 <Button tone="primary" onClick={() => bt.run()} disabled={busy} icon={bt.pending ? <Spinner size={14} /> : undefined}>{bt.pending ? 'Testing…' : 'Run backtest'}</Button>
-                <Button onClick={() => evaluate.run()} disabled={busy} icon={evaluate.pending ? <Spinner size={14} /> : undefined}>{evaluate.pending ? 'Validating…' : 'Validate on unseen data'}</Button>
+                <Button onClick={() => evaluate.run()} disabled={busy} icon={evaluate.pending ? <Spinner size={14} /> : undefined}>{evaluate.pending ? 'Validating…' : 'Validate on research data'}</Button>
               </div>
               <div className="mt-3"><ErrorBox error={bt.error || evaluate.error} /></div>
             </Panel>
@@ -165,7 +170,7 @@ function BacktestResult({ r, sym, strategy, onValidate, validating }: { r: Backt
           Simply holding {sym} returned <b className="text-white">{pct(r.benchmark.total_return, 1)}</b>, so it {beat ? 'beat' : 'trailed'} buy-and-hold.
           Its worst fall from a peak was <b className="text-dn">{pct(m.max_drawdown, 1)}</b>, across {m.num_trades} trades.
         </p>
-        <Notice tone="vi">This uses all history at once, so it can flatter an idea. Validation tests it on data held back from design.{' '}
+        <Notice tone="vi">{r.holdout?.included ? 'Exploratory: this run includes sealed data, so it cannot count as validation evidence. ' : r.holdout?.policy === 'last_20pct' ? `Sealed data from ${r.holdout.start} is excluded. ` : ''}A single backtest over all history can flatter an idea. Validation separates design data from the data it is judged on.{' '}
           <button onClick={onValidate} disabled={validating} className="font-medium text-cy hover:underline">{validating ? 'Validating…' : 'Validate now →'}</button>
         </Notice>
         <div className="mt-5 grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4">
@@ -220,22 +225,23 @@ function Validation({ ev, rules, onResearch }: { ev: any; rules?: Record<string,
   const wf = ev.walk_forward
   const eq = useMemo(() => [{ kind: 'line' as const, id: 'oos', label: 'Unseen-data equity', color: SERIES[1], data: toLine(wf?.oos_equity ?? []) }], [wf])
   const fmtMoney = useMemo(() => (v: number) => `$${Math.round(v).toLocaleString()}`, [])
-  const R = { min_test_sharpe: 0.3, max_bootstrap_p: 0.2, min_neighbour_positive: 0.5, max_test_drawdown: -0.35, min_test_trades: 8, ...(rules ?? {}) }
+  const R = { min_test_sharpe: 0.3, min_neighbour_positive: 0.5, max_test_drawdown: -0.35, min_test_trades: 15, ...(rules ?? {}) }
+  const fam = ev.family
   const t = ev.test
   const checks: [string, boolean, string, string][] = [
     ['Enough trades to judge', t.num_trades >= R.min_test_trades, `${t.num_trades} trades`, `needs ${R.min_test_trades}+`],
-    ['Profitable on unseen data', (t.sharpe ?? -9) >= R.min_test_sharpe, `Sharpe ${num(t.sharpe)}`, `needs ${R.min_test_sharpe}+`],
+    ['Profitable in the selection test', (t.sharpe ?? -9) >= R.min_test_sharpe, `Sharpe ${num(t.sharpe)}`, `needs ${R.min_test_sharpe}+`],
     ['Positive in validation period', (ev.validation.sharpe ?? -9) > 0, `Sharpe ${num(ev.validation.sharpe)}`, 'needs above 0'],
-    ['Statistically significant', ev.bootstrap_p_test !== null && ev.bootstrap_p_test <= R.max_bootstrap_p, `p = ${num(ev.bootstrap_p_test, 2)}`, `needs ≤ ${R.max_bootstrap_p}`],
+    ['Significant on its own (unadjusted)', ev.hac_p_test !== null && ev.hac_p_test <= 0.05, `p = ${num(ev.hac_p_test, 3)}`, 'needs ≤ 0.05'],
     ['Survives doubled costs', (ev.cost_stress.x2.sharpe ?? -9) > 0, `Sharpe ${num(ev.cost_stress.x2.sharpe)}`, 'needs above 0'],
     ['Stable to nearby settings', ev.neighbour_positive_frac === null || ev.neighbour_positive_frac >= R.min_neighbour_positive, pct(ev.neighbour_positive_frac, 0, false) + ' positive', `needs ${pct(R.min_neighbour_positive, 0, false)}+`],
     ['Drawdown within limit', (t.max_drawdown ?? -1) >= R.max_test_drawdown, pct(t.max_drawdown, 1), `needs ≥ ${pct(R.max_test_drawdown, 0)}`],
     ['Consistent over time', !!wf?.folds?.length && wf.positive_oos_folds / wf.folds.length >= 0.5 && (wf.mean_oos_sharpe ?? 0) > 0, wf?.folds?.length ? `${wf.positive_oos_folds} of ${wf.folds.length} periods positive` : 'not run', 'needs half or more'],
   ]
   const passed = checks.filter((c) => c[1]).length
-  const splits = [['train', 'Design period', 'Settings are fitted here'], ['validation', 'Validation', 'Checked before the final test'], ['test', 'Final test', 'Never seen during design']] as const
+  const splits = [['train', 'Design period', 'Settings are fitted here'], ['validation', 'Validation', 'Checked before the final test'], ['test', 'Selection test', 'Not used for fitting']] as const
   return (
-    <Panel title="Validation on unseen data" tag={<HistTag />} subtitle="History is split in time order. The final test period is untouched until the end.">
+    <Panel title="Validation on research data" tag={<HistTag />} subtitle={`History is split in time order, ending ${ev.research_end ? `before sealed data (${ev.research_end})` : 'at the latest bar'}. This is indicative: the final check on sealed data happens only inside a research cycle.`}>
       <div className="grid gap-3 sm:grid-cols-3">
         {splits.map(([k, title, note]) => (
           <div key={k} className={`rounded-[14px] px-4 py-3.5 ring-1 ring-inset ${k === 'test' ? 'bg-cy/[0.05] ring-cy/25' : 'bg-white/[0.025] ring-white/[0.06]'}`}>
@@ -265,7 +271,8 @@ function Validation({ ev, rules, onResearch }: { ev: any; rules?: Record<string,
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-[12px] leading-relaxed text-ink-300">Indicative, using the Research Critic's thresholds. The official verdict also corrects for how many ideas have been tried, and is given only inside a <button onClick={onResearch} className="text-cy hover:underline">research cycle</button>.</p>
+          {fam && <p className="mt-3 text-[12.5px] leading-relaxed text-ink-200">Search effort on this market so far: <b className="text-white">{fam.n_raw}</b> recorded attempts (≈{num(fam.n_eff, 1)} independent), including this one. A result has to beat what luck alone would produce across all of them.</p>}
+          <p className="mt-2 text-[12px] leading-relaxed text-ink-300">These checks are indicative. The official outcome also applies the deflated Sharpe ratio and false-discovery control, then one look at sealed data, and is given only inside a <button onClick={onResearch} className="text-cy hover:underline">research cycle</button>.</p>
         </div>
         <div>
           <div className="mb-1 flex items-center gap-1.5 text-[14px] font-medium text-white">Re-tuned period by period <InfoTip text="Walk-forward: settings are re-chosen on each past window, then traded on the next window they never saw. The unseen windows are stitched together." /></div>

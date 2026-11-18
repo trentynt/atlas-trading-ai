@@ -145,12 +145,15 @@ class Scheduler:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def config(self) -> AutonomyConfig:
-        return AutonomyConfig(**{**self.defaults.model_dump(), **self.db.kv_get("autonomy", {})})
+    def config(self, user_id: int = 1) -> AutonomyConfig:
+        saved = self.db.kv_get(f"autonomy:{user_id}")
+        if saved is None and user_id == 1:
+            saved = self.db.kv_get("autonomy", {})  # pre-migration single-user setting
+        return AutonomyConfig(**{**self.defaults.model_dump(), **(saved or {})})
 
-    def update(self, patch: dict) -> AutonomyConfig:
-        cfg = AutonomyConfig(**{**self.config().model_dump(), **patch})
-        self.db.kv_set("autonomy", cfg.model_dump())
+    def update(self, patch: dict, user_id: int = 1) -> AutonomyConfig:
+        cfg = AutonomyConfig(**{**self.config(user_id).model_dump(), **patch})
+        self.db.kv_set(f"autonomy:{user_id}", cfg.model_dump())
         self.bus.emit("system", f"Autonomy config updated: {patch}", source="scheduler", data={"node": "orchestrator"})
         return cfg
 

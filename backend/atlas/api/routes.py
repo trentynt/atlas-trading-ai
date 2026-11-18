@@ -7,14 +7,16 @@ import time
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 
-from ..agents.core import CRITIC_RULES, backtest_config_for
+from ..agents.core import backtest_config_for
 from ..agents.llm import llm_status
 from ..backtest.engine import CostModel, run_backtest
 from ..backtest.walkforward import full_evaluation, neighbours
 from ..config import code_version
 from ..data.instruments import INSTRUMENTS, get_instrument, unslug
 from ..data.service import DataUnavailable
-from ..db import dumps, loads, utcnow
+from ..db import LOCAL_USER_ID, dumps, loads, utcnow
+from ..research.registry import METHODOLOGY
+from ..research.validation import DISPOSITION_LABEL, GATES_V2
 from ..forecasting.models import MODELS, forecast, rolling_evaluation
 from ..paper.broker import PaperError
 from ..research.features import FEATURE_DOCS, feature_importance
@@ -24,6 +26,11 @@ from ..risk.manager import RiskLimits
 from . import schemas as S
 
 router = APIRouter(prefix="/api")
+
+
+def uid(request: Request) -> int:
+    """The authenticated user's id (set by the auth layer); the local owner in single-user mode."""
+    return int(getattr(request.state, "user_id", LOCAL_USER_ID))
 STARTED = time.time()
 
 
@@ -60,8 +67,12 @@ def overview(request: Request):
     counts = {
         "bars": q("SELECT COUNT(*) n FROM bars")["n"],
         "datasets": q("SELECT COUNT(*) n FROM datasets")["n"],
-        "experiments": q("SELECT COUNT(*) n FROM experiments WHERE kind='hypothesis_test'")["n"],
-        "accepted": q("SELECT COUNT(*) n FROM experiments WHERE kind='hypothesis_test' AND verdict='accepted'")["n"],
+        "experiments": q("SELECT COUNT(*) n FROM experiments WHERE kind='hypothesis_test' AND user_id=?", (uid(request),))["n"],
+        "accepted": q("SELECT COUNT(*) n FROM experiments WHERE kind='hypothesis_test' AND disposition='survived' AND user_id=?", (uid(request),))["n"],
+        "requires_confirmation": q("SELECT COUNT(*) n FROM experiments WHERE kind='hypothesis_test' AND disposition='requires_confirmation' AND user_id=?", (uid(request),))["n"],
+        "insufficient_evidence": q("SELECT COUNT(*) n FROM experiments WHERE kind='hypothesis_test' AND disposition='insufficient_evidence' AND user_id=?", (uid(request),))["n"],
+        "requires_revalidation": q("SELECT COUNT(*) n FROM experiments WHERE kind='hypothesis_test' AND disposition='requires_revalidation' AND user_id=?", (uid(request),))["n"],
+        "trials": q("SELECT COUNT(*) n FROM trials WHERE user_id=?", (uid(request),))["n"],
         "manual_backtests": q("SELECT COUNT(*) n FROM experiments WHERE kind='manual_backtest'")["n"],
         "reports": q("SELECT COUNT(*) n FROM experiments WHERE kind='research_report'")["n"],
         "deployed": q("SELECT COUNT(*) n FROM strategy_configs WHERE status='deployed'")["n"],
@@ -190,6 +201,16 @@ def backtest(request: Request, body: S.BacktestRequest):
     cfg.costs = CostModel(inst.default_spread_bps if c.spread_bps is None else c.spread_bps,
                           inst.default_fee_bps if c.fee_bps is None else c.fee_bps,
                           inst.default_slippage_bps if c.slippage_bps is None else c.slippage_bps)
+    holdout = None
+    if body.timeframe == "1d":
+        hs = sv.registry.holdout_start(uid(request), sym, df.index)
+        holdout = {**(sv.registry.holdout_info(uid(request), sym) or {}), "included": body.include_holdout}
+        if not body.include_holdout:
+            before = df.index[df.index < hs]
+            if len(before) < 60:
+                raise HTTPException(409, "Not enough data before the sealed holdout for a backtest.")
+            last = before[-1].date().isoformat()
+            cfg.end = min(cfg.end, last) if cfg.end else last  # recorded in the config so the run is reproducible
     t0 = time.perf_counter()
     try:
         res = run_backtest(df, strat, cfg, classify(df, cfg.periods_per_year)["trend"])
@@ -201,13 +222,19 @@ def backtest(request: Request, body: S.BacktestRequest):
     payload["dataset_version"] = ds["version"] if ds else None
     payload["data_note"] = ("Close-only ECB reference data: orders fill at the NEXT reference fix (one full bar delay)."
                             if not ds or not ds["has_ohlc"] else "OHLC data: orders fill at the next bar's open.")
+    payload["holdout"] = holdout
     if body.save and body.timeframe == "1d":
         eid = sv.db.insert("experiments", {"created_at": utcnow(), "kind": "manual_backtest", "status": "completed", "symbol": sym,
+                                           "user_id": uid(request), "methodology": METHODOLOGY,
                                            "strategy": strat.key, "params_json": dumps(strat.p), "config_json": dumps(cfg.to_dict()),
                                            "dataset_version": payload["dataset_version"], "code_version": code_version(),
                                            "metrics_json": dumps({"test": res.metrics, "benchmark_test": res.benchmark})})
         sv.db.insert("experiment_artifacts", {"experiment_id": eid, "name": "test_backtest", "json": dumps(res.to_payload(600))})
         payload["experiment_id"] = eid
+        sv.registry.register(user_id=uid(request), kind="manual_backtest", symbol=sym, strategy=strat.key, params=strat.p,
+                             dataset_version=payload["dataset_version"], window=(res.equity.index[0].date().isoformat(), res.equity.index[-1].date().isoformat()),
+                             returns=None, selection_returns=res.returns, sharpe=res.metrics.get("sharpe"), experiment_id=eid,
+                             method="manual_backtest", touches_holdout=bool(body.include_holdout))
         sv.bus.emit("research", f"Manual backtest #{eid}: {strat.key} on {sym} → {res.metrics.get('total_return', 0):+.2%}",
                     source="api", data={"node": f"exp:{eid}"})
     return payload
@@ -224,11 +251,25 @@ def evaluate(request: Request, body: S.EvaluateRequest):
         params = cls(**body.params).p
     except (KeyError, ValueError) as e:
         raise HTTPException(422, str(e))
-    df = _load(sv, sym, min_rows=700)
+    _load(sv, sym, min_rows=700)
+    df, hs, _ = sv.validator.windows(uid(request), sym)
+    if len(df) < 700:
+        raise HTTPException(409, "Not enough data before the sealed holdout to validate.")
     grid = [params] + neighbours(cls, params)[:6] if body.walk_forward else None
     ev = full_evaluation(df, cls, params, backtest_config_for(inst), classify(df, inst.periods_per_year)["trend"], walkforward_grid=grid)
     test = ev.pop("_test_result")
-    return {**ev, "test_series": test.to_payload(600)["series"], "trades": test.trades[-200:]}
+    rr, nb = ev.pop("_research_returns"), ev.pop("_neighbour_runs")
+    ds = sv.data.latest_dataset(sym)
+    sv.registry.register(user_id=uid(request), kind="manual_validation", symbol=sym, strategy=cls.key, params=params,
+                         dataset_version=ds["version"] if ds else None, window=(ev["splits"]["train"][0], ev["splits"]["test"][1]),
+                         returns=rr, selection_returns=test.returns, p_value=None, sharpe=ev["test"].get("sharpe"), method="manual_validation")
+    for v in nb:
+        sv.registry.register(user_id=uid(request), kind="manual_validation", symbol=sym, strategy=cls.key, params=v["params"],
+                             dataset_version=ds["version"] if ds else None, window=(ev["splits"]["train"][0], ev["splits"]["test"][1]),
+                             returns=v["returns"], selection_returns=v["selection_returns"], sharpe=v["sharpe"], method="manual_validation_variant")
+    fam = sv.registry.family_stats(uid(request), sym)
+    return {**ev, "test_series": test.to_payload(600)["series"], "trades": test.trades[-200:], "research_end": hs.date().isoformat(),
+            "holdout": sv.registry.holdout_info(uid(request), sym), "family": fam}
 
 
 # ---------------- forecasting ----------------
@@ -254,9 +295,9 @@ def run_forecast(request: Request, body: S.ForecastRequest):
 # ---------------- experiments ----------------
 @router.get("/experiments")
 def experiments(request: Request, kind: str | None = None, verdict: str | None = None, symbol: str | None = None,
-                limit: int = Query(200, le=2000)):
-    sql, args = "SELECT * FROM experiments WHERE 1=1", []
-    for col, val in (("kind", kind), ("verdict", verdict), ("symbol", _sym(symbol) if symbol else None)):
+                disposition: str | None = None, limit: int = Query(200, le=2000)):
+    sql, args = "SELECT * FROM experiments WHERE user_id=?", [uid(request)]
+    for col, val in (("kind", kind), ("verdict", verdict), ("disposition", disposition), ("symbol", _sym(symbol) if symbol else None)):
         if val:
             sql += f" AND {col}=?"; args.append(val)
     rows = svc(request).db.query(sql + " ORDER BY id DESC LIMIT ?", (*args, limit))
@@ -266,7 +307,7 @@ def experiments(request: Request, kind: str | None = None, verdict: str | None =
 @router.get("/experiments/{eid}")
 def experiment(request: Request, eid: int):
     sv = svc(request)
-    r = sv.db.one("SELECT * FROM experiments WHERE id=?", (eid,))
+    r = sv.db.one("SELECT * FROM experiments WHERE id=? AND user_id=?", (eid, uid(request)))
     if not r:
         raise HTTPException(404, "not found")
     arts = {a["name"]: loads(a["json"]) for a in sv.db.query("SELECT name,json FROM experiment_artifacts WHERE experiment_id=?", (eid,))}
@@ -277,13 +318,13 @@ def experiment(request: Request, eid: int):
 def reproduce(request: Request, eid: int):
     """Re-run an experiment from its saved config, dataset snapshot and parameters; compare metrics."""
     sv = svc(request)
-    r = sv.db.one("SELECT * FROM experiments WHERE id=?", (eid,))
+    r = sv.db.one("SELECT * FROM experiments WHERE id=? AND user_id=?", (eid, uid(request)))
     if not r or r["kind"] not in ("hypothesis_test", "manual_backtest"):
         raise HTTPException(404, "reproducible experiment not found")
     from ..backtest.engine import BacktestConfig
     cfg_d = loads(r["config_json"], {})
     splits = cfg_d.pop("splits", None)
-    cfg_d.pop("strategy", None); cfg_d.pop("params", None)
+    cfg_d.pop("strategy", None); cfg_d.pop("params", None); cfg_d.pop("research_end", None)
     cfg = BacktestConfig.from_dict(cfg_d)
     if splits:
         cfg.start, cfg.end = splits["test"]
@@ -307,15 +348,42 @@ def reproduce(request: Request, eid: int):
 
 @router.get("/experiments-stats/distribution")
 def distribution(request: Request):
-    rows = svc(request).db.query("SELECT id, symbol, strategy, verdict, metrics_json FROM experiments WHERE kind='hypothesis_test' ORDER BY id")
+    rows = svc(request).db.query("SELECT id, symbol, strategy, verdict, disposition, metrics_json FROM experiments WHERE kind='hypothesis_test' AND user_id=? ORDER BY id", (uid(request),))
     pts = []
     for r in rows:
         m = loads(r["metrics_json"], {})
-        pts.append({"id": r["id"], "symbol": r["symbol"], "strategy": r["strategy"], "verdict": r["verdict"],
+        pts.append({"id": r["id"], "symbol": r["symbol"], "strategy": r["strategy"], "verdict": r["verdict"], "disposition": r["disposition"],
                     "is_sharpe": m.get("in_sample_sharpe"), "oos_sharpe": (m.get("test") or {}).get("sharpe"),
                     "val_sharpe": (m.get("validation") or {}).get("sharpe"), "dsr": m.get("dsr_test"),
                     "test_return": (m.get("test") or {}).get("total_return"), "max_dd": (m.get("test") or {}).get("max_drawdown")})
-    return {"points": pts, "critic_rules": CRITIC_RULES}
+    return {"points": pts, "critic_rules": GATES_V2, "labels": DISPOSITION_LABEL}
+
+
+@router.get("/research/integrity")
+def research_integrity(request: Request):
+    """How much searching has been done, and how the validation accounts for it — per market."""
+    sv = svc(request)
+    u = uid(request)
+    reg = sv.registry
+    symbols = [r["symbol"] for r in sv.db.query("SELECT DISTINCT symbol FROM trials WHERE user_id=? ORDER BY symbol", (u,))]
+    per = []
+    for s in symbols:
+        per.append({"symbol": s, "counts": reg.counts(u, s), "family": reg.family_stats(u, s), "holdout": reg.holdout_info(u, s)})
+    disp = {r["disposition"] or "unvalidated": r["n"] for r in sv.db.query(
+        "SELECT disposition, COUNT(*) n FROM experiments WHERE user_id=? AND kind='hypothesis_test' GROUP BY disposition", (u,))}
+    return {"methodology": METHODOLOGY, "gates": GATES_V2, "labels": DISPOSITION_LABEL, "totals": reg.counts(u),
+            "fdr_family_size": len(reg.fdr_family(u)), "dispositions": disp, "markets": per,
+            "documentation": "docs/STATISTICS.md"}
+
+
+@router.post("/research/revalidate")
+def research_revalidate(request: Request):
+    """Re-evaluate legacy findings under the current methodology (background job)."""
+    sv = svc(request)
+    u = uid(request)
+    from ..research.revalidate import revalidate
+    jid = sv.jobs.submit("revalidation", lambda ctx, p: {k: v for k, v in revalidate(sv, u, ctx.cancelled, ctx.progress).items()}, {"user_id": u})
+    return {"job_id": jid}
 
 
 # ---------------- agents & jobs ----------------
@@ -592,10 +660,10 @@ def graph(request: Request, max_experiments: int = Query(800, le=5000)):
         add(f"stype:{k}", cls.name, "strategy_type", family=cls.family)
         link("agent:discovery", f"stype:{k}", "flow")
     siblings: dict[tuple, list[int]] = {}
-    for r in sv.db.query("SELECT id, symbol, strategy, verdict, metrics_json FROM experiments WHERE kind IN ('hypothesis_test','manual_backtest') ORDER BY id DESC LIMIT ?", (max_experiments,)):
+    for r in sv.db.query("SELECT id, symbol, strategy, verdict, disposition, metrics_json FROM experiments WHERE kind IN ('hypothesis_test','manual_backtest') AND user_id=? ORDER BY id DESC LIMIT ?", (uid(request), max_experiments)):
         m = loads(r["metrics_json"], {})
         sh = (m.get("test") or {}).get("sharpe")
-        add(f"exp:{r['id']}", f"#{r['id']} {r['strategy']} {r['symbol']}", "experiment", verdict=r["verdict"] or "manual", sharpe=sh,
+        add(f"exp:{r['id']}", f"#{r['id']} {r['strategy']} {r['symbol']}", "experiment", verdict=r["disposition"] or ("manual" if not r["verdict"] else r["verdict"]), sharpe=sh,
             trades=(m.get("test") or {}).get("num_trades") or 0)
         link(f"stype:{r['strategy']}", f"exp:{r['id']}", "derive")
         link(f"data:{r['symbol']}", f"exp:{r['id']}", "derive")
@@ -637,8 +705,10 @@ def graph(request: Request, max_experiments: int = Query(800, le=5000)):
 
 def _exp(r: dict) -> dict:
     r = dict(r)
-    for k in ("params_json", "config_json", "metrics_json", "reasons_json", "hypothesis_json"):
-        r[k.replace("_json", "")] = loads(r.pop(k), None)
+    for k in ("params_json", "config_json", "metrics_json", "reasons_json", "hypothesis_json", "evidence_json"):
+        if k in r:
+            r[k.replace("_json", "")] = loads(r.pop(k), None)
+    r["disposition_label"] = DISPOSITION_LABEL.get(r.get("disposition") or "", None)
     return r
 
 

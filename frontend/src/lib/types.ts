@@ -94,6 +94,7 @@ export interface BacktestPayload {
   dataset_version?: string
   data_note?: string
   experiment_id?: number
+  holdout?: { start?: string; policy?: 'forward_only' | 'last_20pct'; included?: boolean; accesses?: number } | null
 }
 
 export interface ParamSpec {
@@ -139,6 +140,10 @@ export interface Experiment {
   code_version: string | null
   metrics: Record<string, any> | null
   verdict: 'accepted' | 'rejected' | null
+  disposition?: string | null
+  disposition_label?: string | null
+  methodology?: string | null
+  evidence?: any
   reasons: string[] | null
   job_id: number | null
   cycle_id: number | null

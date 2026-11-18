@@ -33,12 +33,13 @@ class EventBus:
             self._subs.discard(q)
 
     def emit(self, category: str, message: str, *, level: str = "info", source: str | None = None,
-             data: dict[str, Any] | None = None) -> dict:
+             data: dict[str, Any] | None = None, user_id: int | None = None) -> dict:
+        """user_id=None marks a system-wide event (e.g. market data); otherwise only that user sees it."""
         ev = {"ts": utcnow(), "category": category, "level": level, "source": source,
-              "message": message, "data": data or {}}
+              "message": message, "data": data or {}, "user_id": user_id}
         try:
-            ev["id"] = self.db.insert("events", {"ts": ev["ts"], "category": category, "level": level,
-                                                 "source": source, "message": message, "data_json": dumps(ev["data"])})
+            ev["id"] = self.db.insert("events", {"ts": ev["ts"], "category": category, "level": level, "source": source,
+                                                 "message": message, "data_json": dumps(ev["data"]), "user_id": user_id if user_id is not None else 0})
         except Exception:  # never let telemetry break the caller
             log.exception("failed to persist event")
         getattr(log, "warning" if level in ("warn", "error") else "info")(f"[{category}] {message}")

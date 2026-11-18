@@ -28,7 +28,7 @@ const STYLE: Record<Kind, { color: string; r: number; shell: number; prio: numbe
   run: { color: '#77c9d4', r: 1.15, shell: 1, prio: 0 },
   experiment: { color: '#aab4c0', r: 2.6, shell: 1, prio: 1 },
 }
-const VERDICT: Record<string, string> = { accepted: '#6ee7a8', rejected: '#ff6b6b', manual: '#dde3ea' }
+const VERDICT: Record<string, string> = { survived: '#6ee7a8', requires_confirmation: '#f5b553', insufficient_evidence: '#aab4c0', requires_revalidation: '#aab4c0', rejected: '#ff6b6b', accepted: '#6ee7a8', manual: '#dde3ea' }
 const EDGE_RGB: Record<string, [number, number, number]> = {
   control: [222, 230, 238], flow: [94, 234, 212], derive: [124, 180, 255], judge: [255, 107, 107], eval: [150, 205, 255],
   sibling: [190, 205, 220], exec: [110, 205, 215], promote: [245, 181, 83],

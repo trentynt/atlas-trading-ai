@@ -3,7 +3,7 @@ import { StatusDot } from './components/ui'
 import { api, useApi } from './lib/api'
 import { EventProvider, useEvents, useEventTrigger } from './lib/events'
 import { money, pct, tone } from './lib/format'
-import { strategyName } from './lib/explain'
+import { DISPOSITION, dispositionOf, strategyName } from './lib/explain'
 import { navigate, symToParam, useRoute, type ViewKey } from './lib/route'
 import { ToastProvider, useToast } from './lib/toast'
 import type { Experiment, Market, Overview } from './lib/types'
@@ -174,7 +174,7 @@ function SearchPalette({ onClose, reload, markets, exps }: { onClose: () => void
     return [
       ...NAV.map((n) => ({ id: `nav-${n.key}`, group: 'Workspaces', label: n.label, hint: n.hint, run: done(() => navigate(n.key)) })),
       ...markets.map((m) => ({ id: `m-${m.symbol}`, group: 'Instruments', label: m.symbol, hint: `${m.asset_class === 'fx' ? 'Forex · ECB daily reference rate' : 'Crypto · daily candles'} · ${m.provider ?? ''}`, run: done(() => navigate('markets', { sym: symToParam(m.symbol) })) })),
-      ...exps.map((e) => ({ id: `e-${e.id}`, group: 'Discoveries', label: `${strategyName(e.strategy)} · ${e.symbol}  #${e.id}`, hint: e.verdict === 'accepted' ? 'Passed every check' : 'Rejected', run: done(() => navigate('experiments', { id: e.id })) })),
+      ...exps.map((e) => ({ id: `e-${e.id}`, group: 'Discoveries', label: `${strategyName(e.strategy)} · ${e.symbol}  #${e.id}`, hint: DISPOSITION[dispositionOf(e) ?? 'rejected'].label, run: done(() => navigate('experiments', { id: e.id })) })),
       { id: 'a-cycle', group: 'Actions', label: 'Run a research cycle', hint: 'Your research team proposes, tests and reviews new ideas', run: done(async () => { const r = await api.post<{ job_id: number }>('/jobs/research-cycle', { max_hypotheses: 8 }); toast({ tone: 'info', title: 'Research cycle started', body: `Job #${r.job_id}. Follow it on the Research page.` }); reload() }) },
       { id: 'a-refresh', group: 'Actions', label: 'Refresh market data', hint: 'Fetch the latest daily bars from data providers', run: done(async () => { await api.post('/markets/refresh', {}); toast({ tone: 'info', title: 'Refreshing market data' }) }) },
       { id: 'a-tick', group: 'Actions', label: 'Run the paper engine now', hint: 'Evaluate deployed strategies against the latest data', run: done(async () => { await api.post('/paper/tick'); toast({ tone: 'success', title: 'Paper engine evaluated' }); reload() }) },

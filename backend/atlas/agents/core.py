@@ -149,10 +149,13 @@ class StrategyDiscoveryAgent(Agent):
     def execute(self, inputs, ctx):
         market = inputs["market"]["symbols"]
         n_max = int(inputs.get("max_hypotheses", 12))
-        seed_src = json.dumps({s: m.get("version") for s, m in market.items()}, sort_keys=True) + str(inputs.get("cycle_id"))
+        uid = int(inputs.get("user_id", 1))
+        seed_src = json.dumps({s: m.get("version") for s, m in market.items()}, sort_keys=True) + f"{uid}:{inputs.get('cycle_id')}"
         rng = random.Random(int(hashlib.sha256(seed_src.encode()).hexdigest()[:8], 16))
-        tested = {(r["symbol"], r["strategy"], r["params_json"], r["dataset_version"])
-                  for r in self.db.query("SELECT symbol,strategy,params_json,dataset_version FROM experiments WHERE kind='hypothesis_test'")}
+        # Never re-test a configuration already in this user's history: the research window is fixed by the
+        # sealed holdout, so a repeat would only add a duplicate trial.
+        tested = {(r["symbol"], r["strategy"], r["params_json"])
+                  for r in self.db.query("SELECT symbol,strategy,params_json FROM experiments WHERE kind='hypothesis_test' AND user_id=?", (uid,))}
         hyps: list[dict] = []
 
         def add(sym, key, params, rationale, origin):
@@ -160,20 +163,21 @@ class StrategyDiscoveryAgent(Agent):
             if not m.get("available"):
                 return False
             pj = dumps(get_strategy(key).resolve_params(params))
-            if (sym, key, pj, m["version"]) in tested or any(h["symbol"] == sym and h["strategy"] == key and h["params_json"] == pj for h in hyps):
+            if (sym, key, pj) in tested or any(h["symbol"] == sym and h["strategy"] == key and h["params_json"] == pj for h in hyps):
                 return False
             hyps.append({"symbol": sym, "strategy": key, "params": loads(pj), "params_json": pj, "rationale": rationale,
                          "origin": origin, "dataset_version": m["version"]})
             return True
 
         # 1. queued follow-ups from previous cycles take priority
-        queue = self.db.kv_get("research_queue", [])
+        qkey = f"research_queue:{uid}"
+        queue = self.db.kv_get(qkey, self.db.kv_get("research_queue", []) if uid == 1 else [])
         remaining = []
         for q in queue:
             if len(hyps) < n_max // 2 and add(q["symbol"], q["strategy"], q["params"], q["rationale"], "queue"):
                 continue
             remaining.append(q)
-        self.db.kv_set("research_queue", remaining[:100])
+        self.db.kv_set(qkey, remaining[:100])
         # 2. regime-aware exploration
         candidates = []
         for sym, m in market.items():
@@ -201,24 +205,25 @@ class StrategyDiscoveryAgent(Agent):
 
 class BacktestingAgent(Agent):
     name, title = "backtester", "Backtesting Agent"
-    role = "Runs the event-driven engine on chronological train/validation/test splits, rolling walk-forward optimisation, cost stress and parameter-neighbourhood tests."
-    tools = ["backtest.run_backtest", "walkforward.full_evaluation", "walkforward.walk_forward"]
+    role = "Runs the event-driven engine on the research window only (train / validation / selection test), walk-forward, cost stress and parameter-neighbourhood tests, and registers every trial."
+    tools = ["backtest.run_backtest", "walkforward.full_evaluation", "trial registry"]
 
     def execute(self, inputs, ctx):
         h = inputs["hypothesis"]
+        uid = int(inputs.get("user_id", 1))
         inst = get_instrument(h["symbol"])
-        cls = get_strategy(h["strategy"])
-        df = self.s.data.load(h["symbol"])
-        regimes = classify(df, inst.periods_per_year)["trend"]
-        cfg = backtest_config_for(inst)
-        grid = [h["params"]] + neighbours(cls, h["params"])[:6]
-        ev = full_evaluation(df, cls, h["params"], cfg, regimes=regimes, walkforward_grid=grid,
-                             cancel=(ctx.cancelled if ctx else None))
+        research_df = inputs.get("research_df")
+        if research_df is None:
+            research_df, _, _ = self.s.validator.windows(uid, h["symbol"])
+        regimes = classify(research_df, inst.periods_per_year)["trend"]
+        ev = self.s.validator.evaluate(uid, h["symbol"], h["strategy"], h["params"], research_df=research_df,
+                                       dataset_version=h.get("dataset_version"), cycle_id=inputs.get("cycle_id"), regimes=regimes,
+                                       cancel=(ctx.cancelled if ctx else None))
         t = ev["test"]
-        return {"evaluation": ev, "config": cfg.to_dict(),
-                "headline": f"{h['strategy']} {h['symbol']}: test Sharpe {_fmt(t.get('sharpe'))}, return {_pct(t.get('total_return'))}, {t['num_trades']} trades",
+        return {"evaluation": ev, "config": ev["config"],
+                "headline": f"{h['strategy']} {h['symbol']}: selection-test Sharpe {_fmt(t.get('sharpe'))}, {t['num_trades']} trades, {1 + len(ev['variant_trial_ids'])} trials registered",
                 "summary": {"test": {k: t.get(k) for k in ("sharpe", "total_return", "max_drawdown", "num_trades")},
-                            "validation_sharpe": ev["validation"].get("sharpe")}}
+                            "research_end": inputs.get("research_end"), "trials_registered": 1 + len(ev["variant_trial_ids"])}}
 
 
 class RiskAnalysisAgent(Agent):
@@ -257,67 +262,22 @@ class RiskAnalysisAgent(Agent):
                 "summary": {k: out[k] for k in ("var_95", "cvar_95", "max_drawdown", "profit_concentration_top10pct")}}
 
 
-CRITIC_RULES = {
-    "min_test_trades": 8, "min_test_sharpe": 0.30, "min_validation_sharpe": 0.0, "min_oos_is_ratio": 0.25,
-    "min_dsr": 0.60, "max_bootstrap_p": 0.20, "max_test_drawdown": -0.35, "min_neighbour_positive": 0.5,
-    "min_wf_positive_frac": 0.5,
-}
+from ..research.validation import GATES_V2 as CRITIC_RULES  # noqa: E402  (methodology v2 thresholds)
 
 
 class ResearchCriticAgent(Agent):
     name, title = "critic", "Research Critic Agent"
-    role = "Adversarial reviewer. Rejects strategies that fail out-of-sample, depend on luck (multiple-testing), are fragile to costs or parameters, or carry unacceptable drawdown."
-    tools = ["deflated Sharpe ratio", "block bootstrap", "walk-forward consistency", "parameter stability"]
+    role = ("Adversarial reviewer. Rejects strategies that fail on data they were not designed on, could be explained by the "
+            "number of ideas tried (deflated Sharpe, false-discovery control), are fragile to costs or settings, or draw down too far.")
+    tools = ["deflated Sharpe ratio (effective trials)", "Benjamini–Yekutieli FDR", "Newey–West t-test", "walk-forward", "sealed holdout"]
 
     def execute(self, inputs, ctx):
-        ev, risk = inputs["evaluation"], inputs["risk"]
-        R = {**CRITIC_RULES, **(inputs.get("rules") or {})}
-        t, v, i = ev["test"], ev["validation"], ev["in_sample"]
-        wf = ev.get("walk_forward") or {}
-        checks = []
-
-        def chk(name, value, ok, threshold, blocking, why):
-            checks.append({"name": name, "value": value, "passed": bool(ok), "threshold": threshold, "blocking": blocking, "explanation": why})
-
-        ts, vs, iss = t.get("sharpe"), v.get("sharpe"), i.get("sharpe")
-        chk("sample_size", t["num_trades"], t["num_trades"] >= R["min_test_trades"], f">= {R['min_test_trades']} test trades", True,
-            "Too few out-of-sample trades to distinguish skill from noise.")
-        chk("oos_sharpe", ts, ts is not None and ts >= R["min_test_sharpe"], f">= {R['min_test_sharpe']}", True,
-            "Held-out test period must show meaningful risk-adjusted return net of costs.")
-        chk("validation_sharpe", vs, vs is not None and vs > R["min_validation_sharpe"], f"> {R['min_validation_sharpe']}", True,
-            "Validation period (between train and test) must also be positive.")
-        ratio = (ts / iss) if (ts is not None and iss and iss > 0) else None
-        chk("is_oos_decay", ratio, iss is None or iss <= 0 or (ratio is not None and ratio >= R["min_oos_is_ratio"]),
-            f"OOS/IS Sharpe >= {R['min_oos_is_ratio']}", True, "Large in-sample → out-of-sample decay indicates overfitting.")
-        chk("deflated_sharpe", ev.get("dsr_test"), (ev.get("dsr_test") or 0) >= R["min_dsr"], f">= {R['min_dsr']}", True,
-            f"Probability the test Sharpe beats the best of {inputs.get('n_trials', 1)} unskilled trials (Bailey & López de Prado).")
-        chk("bootstrap_p", ev.get("bootstrap_p_test"), ev.get("bootstrap_p_test") is not None and ev["bootstrap_p_test"] <= R["max_bootstrap_p"],
-            f"<= {R['max_bootstrap_p']}", True, "Block-bootstrap p-value that mean test return <= 0.")
-        s2 = ev["cost_stress"]["x2"]["sharpe"]
-        chk("cost_robustness", s2, s2 is not None and s2 > 0, "Sharpe > 0 at 2× costs", True, "Edge must survive doubled frictions.")
-        nb = ev.get("neighbour_positive_frac")
-        chk("parameter_stability", nb, nb is None or nb >= R["min_neighbour_positive"], f">= {R['min_neighbour_positive']:.0%} neighbours positive", True,
-            "Neighbouring parameter sets should also work; isolated peaks are overfit.")
-        mdd = t.get("max_drawdown")
-        chk("drawdown", mdd, mdd is not None and mdd >= R["max_test_drawdown"], f">= {R['max_test_drawdown']:.0%}", True, "Test drawdown limit.")
-        if wf.get("folds"):
-            frac = wf["positive_oos_folds"] / len(wf["folds"])
-            chk("walk_forward", frac, frac >= R["min_wf_positive_frac"] and (wf.get("mean_oos_sharpe") or 0) > 0,
-                f">= {R['min_wf_positive_frac']:.0%} positive OOS folds & mean OOS Sharpe > 0", True,
-                "Re-optimised walk-forward must hold up across time.")
-        bs = ev["benchmark_test"].get("sharpe")
-        chk("beats_benchmark", ts, ts is not None and (bs is None or ts > bs), f"> buy&hold Sharpe ({_fmt(bs)})", False,
-            "Advisory: compare with passive exposure to the same instrument.")
-        if (risk.get("profit_concentration_top10pct") or 0) > 0.6:
-            chk("profit_concentration", risk["profit_concentration_top10pct"], False, "<= 60%", False, "Advisory: returns depend on a few trades.")
-        blocking_fail = [c for c in checks if c["blocking"] and not c["passed"]]
-        verdict = "accepted" if not blocking_fail else "rejected"
-        score = sum(c["passed"] for c in checks) / len(checks)
-        near_miss = verdict == "rejected" and len(blocking_fail) <= 2 and (ts or 0) > 0
-        return {"verdict": verdict, "score": score, "checks": checks, "near_miss": near_miss,
-                "reasons": [f"{c['name']}: {c['explanation']} (value {_fmt(c['value'])}, need {c['threshold']})" for c in blocking_fail],
-                "headline": f"{verdict.upper()} ({sum(c['passed'] for c in checks)}/{len(checks)} checks)",
-                "summary": {"verdict": verdict, "failed": [c["name"] for c in blocking_fail]}}
+        out = self.s.validator.judge(int(inputs.get("user_id", 1)), inputs["symbol"], inputs["evaluation"], inputs.get("risk"))
+        n = len(out["checks"])
+        passed = sum(c["passed"] for c in out["checks"])
+        return {**out, "headline": f"{out['disposition'].replace('_', ' ')} ({passed}/{n} checks)",
+                "summary": {"disposition": out["disposition"], "failed": out["failed"], "n_eff": out["family"]["n_eff"],
+                            "q_value": out["family"]["q_value"]}}
 
 
 class PortfolioResearchAgent(Agent):

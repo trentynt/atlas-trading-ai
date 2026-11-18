@@ -40,7 +40,7 @@ function Section({ id, eyebrow, title, intro, children }: { id?: string; eyebrow
 const STEPS: [string, string, string][] = [
   ['Read the markets', 'Fresh daily data is downloaded, validated and versioned. Gaps, duplicates and stale prices are caught before research starts.', 'Market Intelligence'],
   ['Propose ideas', 'Strategy ideas suited to current conditions are generated within a fixed search budget, with every parameter logged.', 'Strategy Discovery'],
-  ['Test on unseen data', 'Each idea is designed on older data and judged on newer data it has never seen — with realistic trading costs.', 'Backtesting'],
+  ['Test on later data', 'Each idea is designed on older data, judged on later data with realistic trading costs, and must pass one look at sealed data before it counts.', 'Backtesting'],
   ['Stress-test', 'Drawdowns, tail losses, doubled costs and nearby settings show how the idea could fail.', 'Risk Analysis'],
   ['Reject what could be luck', 'A critic rejects by default. The bar rises with every idea tried, so a lucky result can’t slip through.', 'Research Critic'],
   ['Paper-trade the survivors', 'Ideas that pass every check can trade with simulated money, behind risk limits the agents can’t override.', 'Portfolio Research'],
@@ -101,7 +101,7 @@ export function Landing() {
         </div>
         <div className="relative mx-auto mt-16 max-w-[1180px]">
           <Shot src={IMG('01-overview')} alt="The SIGNAL Overview: a plain-language research summary, the research network, attention items and market cards" className="relative" />
-          <p className="mt-4 text-center text-[13.5px] text-ink-300">The real interface, showing real data.{stats ? ` In this preview, ${stats.tested} ideas have been tested and ${stats.accepted} ${stats.accepted === 1 ? 'has' : 'have'} passed every check.` : ''}</p>
+          <p className="mt-4 text-center text-[13.5px] text-ink-300">The real interface, showing real data.{stats ? ` In this preview, ${stats.tested} ideas have been tested and ${stats.accepted} survived current validation.` : ''}</p>
         </div>
       </section>
 

@@ -2,7 +2,7 @@
 
 export const CHECK_PLAIN: Record<string, { short: string; long: string }> = {
   sample_size: { short: 'Too few trades', long: 'It made too few trades in the held-out period to tell skill from luck.' },
-  oos_sharpe: { short: 'Weak on unseen data', long: 'On data it never saw during design, its risk-adjusted return was too low.' },
+  oos_sharpe: { short: 'Weak in selection test', long: 'On the later selection-test period, not used for fitting, its risk-adjusted return was too low.' },
   validation_sharpe: { short: 'Failed validation', long: 'It lost money, after risk, in the validation period between design and final test.' },
   is_oos_decay: { short: 'Overfit', long: 'It looked much better on the data it was designed on than on new data — a classic sign of overfitting.' },
   deflated_sharpe: { short: 'Likely luck', long: 'Given how many ideas have been tried, a result this good is plausible by chance alone.' },
@@ -13,6 +13,9 @@ export const CHECK_PLAIN: Record<string, { short: string; long: string }> = {
   walk_forward: { short: 'Inconsistent over time', long: 'When re-tuned and re-tested period by period, it did not hold up consistently.' },
   beats_benchmark: { short: 'Below buy-and-hold', long: 'Simply holding the instrument would have done better on a risk-adjusted basis (advisory).' },
   profit_concentration: { short: 'A few lucky trades', long: 'Most of the profit came from a handful of trades (advisory).' },
+  fdr: { short: 'Explained by the number of ideas tried', long: 'Across every idea you have tested, a result this strong is expected by chance (false-discovery control).' },
+  holdout_confirmation: { short: 'Failed on sealed data', long: 'Its single look at sealed data it was never selected on did not confirm the result.' },
+  data: { short: 'Data unavailable', long: 'The data this result used is no longer available.' },
 }
 
 export function checkName(reason: string): string {
@@ -67,10 +70,11 @@ export const shortDate = (iso: string | null | undefined) => {
 
 /** Neutral names for critic checks (used with a pass/fail mark). */
 export const CHECK_NAME: Record<string, string> = {
-  sample_size: 'Enough trades', oos_sharpe: 'Strong on unseen data', validation_sharpe: 'Passed validation', is_oos_decay: 'Not overfit',
+  sample_size: 'Enough trades', oos_sharpe: 'Strong in selection test', validation_sharpe: 'Passed validation', is_oos_decay: 'Not overfit',
   deflated_sharpe: 'Not explained by luck', bootstrap_p: 'Statistically significant', cost_robustness: 'Survives higher costs',
   parameter_stability: 'Stable to nearby settings', drawdown: 'Drawdown within limit', walk_forward: 'Consistent over time',
   beats_benchmark: 'Beats buy-and-hold', profit_concentration: 'Profits spread across trades',
+  fdr: 'Survives false-discovery control', holdout_confirmation: 'Confirmed on sealed data',
 }
 
 /** Plain-language rendering of common engine events; falls back to the raw message. */
@@ -85,7 +89,7 @@ export function humanizeEvent(msg: string): string {
     return `${name} ${m[1] === 'Completed' ? 'finished' : m[1] === 'Started' ? 'started' : 'queued'}`
   }
   if ((m = msg.match(/^Forecast (\w+) h=(\d+) on (\S+)/))) return `Forecast generated for ${m[3]}, ${m[2]} days ahead`
-  if ((m = msg.match(/^Experiment #(\d+) (\w+) (\S+): (ACCEPTED|REJECTED)/))) return `${strategyName(m[2])} on ${m[3]} was ${m[4].toLowerCase()} (#${m[1]})`
+  if ((m = msg.match(/^Experiment #(\d+) (\w+) (\S+): (.+)$/))) return `${strategyName(m[2])} on ${m[3]}: ${m[4]} (#${m[1]})`
   if ((m = msg.match(/^Manual backtest #(\d+): (\w+) on (\S+) → (\S+)/))) return `You backtested ${strategyName(m[2])} on ${m[3]}: ${m[4]}`
   if ((m = msg.match(/^REJECTED (\S+) /))) return `A paper order on ${m[1]} was blocked by risk limits`
   if ((m = msg.match(/^APPROVED (\S+) /))) return `A paper order on ${m[1]} passed every risk check`
@@ -94,3 +98,15 @@ export function humanizeEvent(msg: string): string {
   if ((m = msg.match(/^(.+?) finished in (\d+) ms: (.*)$/))) return `${m[1]} finished${m[3] ? ` — ${m[3]}` : ''}`
   return msg
 }
+
+/** Research outcomes (methodology v2). Never "approved" or "accepted": survival is evidence, not a recommendation. */
+export type Disposition = 'survived' | 'rejected' | 'insufficient_evidence' | 'requires_confirmation' | 'requires_revalidation'
+export const DISPOSITION: Record<Disposition, { label: string; short: string; tone: 'up' | 'dn' | 'am' | 'mute'; explain: string }> = {
+  survived: { label: 'Survived current validation', short: 'Survived', tone: 'up', explain: 'It passed every blocking test, including the correction for how many ideas have been tried and a single look at sealed data it was never selected on. This is evidence under stated assumptions, not a promise of future profit.' },
+  rejected: { label: 'Rejected during testing', short: 'Rejected', tone: 'dn', explain: 'At least one blocking test failed.' },
+  insufficient_evidence: { label: 'Insufficient evidence', short: 'Insufficient evidence', tone: 'am', explain: 'There were too few trades to judge either way.' },
+  requires_confirmation: { label: 'Requires out-of-sample confirmation', short: 'Awaiting confirmation', tone: 'am', explain: 'It passed every research test. It still has to hold up on market data that arrives after it was selected — about three months of new data — before it can be called a survivor.' },
+  requires_revalidation: { label: 'Requires revalidation', short: 'Requires revalidation', tone: 'mute', explain: 'The data this result used is no longer available, so it cannot be reproduced or re-checked.' },
+}
+export const dispositionOf = (e: { disposition?: string | null; verdict?: string | null }): Disposition | null =>
+  (e.disposition as Disposition) ?? (e.verdict === 'accepted' ? 'requires_revalidation' : e.verdict ? 'rejected' : null)

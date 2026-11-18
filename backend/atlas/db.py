@@ -145,7 +145,37 @@ class Database:
         if self.path != ":memory:":
             self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.execute("PRAGMA busy_timeout=10000")  # API and worker processes may share the file
         self._conn.executescript(SCHEMA)
+        self._migrate()
+
+    # ---------- schema migrations ----------
+    def _columns(self, table: str) -> set[str]:
+        return {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+    def _add_column(self, table: str, col: str, decl: str) -> None:
+        if col not in self._columns(table):
+            self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+    def schema_version(self) -> int:
+        r = self._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+        return int(r[0] or 0)
+
+    def _migrate(self) -> None:
+        """Forward-only, idempotent migrations. Each step runs once and is recorded."""
+        with self._lock:
+            self._conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+            for version, step in MIGRATIONS:
+                if self._conn.execute("SELECT 1 FROM schema_migrations WHERE version=?", (version,)).fetchone():
+                    continue
+                self._conn.execute("BEGIN IMMEDIATE")
+                try:
+                    step(self)
+                    self._conn.execute("INSERT INTO schema_migrations(version, applied_at) VALUES(?,?)", (version, utcnow()))
+                    self._conn.execute("COMMIT")
+                except BaseException:
+                    self._conn.execute("ROLLBACK")
+                    raise
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
@@ -193,3 +223,48 @@ class Database:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+
+# ---------------------------------------------------------------------------------------------
+# Migrations
+# ---------------------------------------------------------------------------------------------
+LOCAL_USER_ID = 1  # single-user / development owner; real accounts start at id 2
+
+USER_SCOPED_TABLES = ("experiments", "strategy_configs", "jobs", "agent_runs", "events", "orders", "fills",
+                      "portfolio_snapshots", "risk_events")
+
+
+def _m1_users_trials_holdout(db: "Database") -> None:
+    c = db._conn
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, password_hash TEXT,
+        created_at TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0, last_seen_at TEXT, previous_seen_at TEXT,
+        onboarded_at TEXT, settings_json TEXT, invite_id INTEGER, disabled INTEGER NOT NULL DEFAULT 0)""")
+    c.execute("INSERT OR IGNORE INTO users(id, email, password_hash, created_at, is_admin) VALUES(?,?,?,?,1)",
+              (LOCAL_USER_ID, "owner@local.signal", None, utcnow()))
+    for t in USER_SCOPED_TABLES:
+        db._add_column(t, "user_id", f"INTEGER NOT NULL DEFAULT {LOCAL_USER_ID}")
+    db._add_column("experiments", "disposition", "TEXT")
+    db._add_column("experiments", "methodology", "TEXT")
+    db._add_column("experiments", "revalidated_at", "TEXT")
+    db._add_column("experiments", "evidence_json", "TEXT")
+    c.execute("""CREATE TABLE IF NOT EXISTS trials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, cycle_id INTEGER, experiment_id INTEGER,
+        hypothesis_key TEXT, family TEXT, strategy TEXT NOT NULL, symbol TEXT NOT NULL, timeframe TEXT NOT NULL,
+        params_json TEXT NOT NULL, dataset_version TEXT, code_version TEXT, kind TEXT NOT NULL,
+        window_start TEXT, window_end TEXT, returns_start TEXT, method TEXT, n_obs INTEGER, sharpe REAL, sr_bar REAL,
+        p_value REAL, returns_blob BLOB, disposition TEXT, touches_holdout INTEGER NOT NULL DEFAULT 0,
+        methodology TEXT NOT NULL, created_at TEXT NOT NULL)""")
+    c.execute("CREATE INDEX IF NOT EXISTS ix_trials_user_symbol ON trials(user_id, symbol, kind)")
+    c.execute("""CREATE TABLE IF NOT EXISTS holdout_evaluations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, symbol TEXT NOT NULL, strategy TEXT NOT NULL,
+        params_json TEXT NOT NULL, holdout_start TEXT NOT NULL, holdout_end TEXT NOT NULL, metrics_json TEXT NOT NULL,
+        experiment_id INTEGER, created_at TEXT NOT NULL,
+        UNIQUE(user_id, symbol, strategy, params_json, holdout_start))""")
+    for t in ("experiments", "jobs", "orders", "events", "strategy_configs"):
+        c.execute(f"CREATE INDEX IF NOT EXISTS ix_{t}_user ON {t}(user_id)")
+
+
+MIGRATIONS = [
+    (1, _m1_users_trials_holdout),
+]

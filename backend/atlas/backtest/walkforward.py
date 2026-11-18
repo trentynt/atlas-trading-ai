@@ -135,30 +135,45 @@ def neighbours(strategy_cls: type[Strategy], params: dict) -> list[dict]:
 def full_evaluation(df: pd.DataFrame, strategy_cls: type[Strategy], params: dict, cfg: BacktestConfig,
                     regimes: pd.Series | None = None, n_trials: int = 1, trial_sharpe_var: float = 0.0,
                     walkforward_grid: list[dict] | None = None, cancel=None) -> dict:
-    """The complete robustness battery for a single hypothesis."""
+    """The complete robustness battery for a single hypothesis.
+
+    `df` must already be truncated to the RESEARCH WINDOW (everything before the sealed holdout);
+    nothing in this function can see holdout data. Splits within it: train / validation / selection
+    test, in time order. Private keys (prefixed `_`) carry return series for the trial registry."""
+    from ..research.integrity import hac_t_test
+
     sp = chronological_splits(df.index)
     res = {}
     for name, (s, e) in (("train", sp.train), ("validation", sp.validation), ("test", sp.test)):
-        r = run_backtest(df, strategy_cls(**params), window_cfg(cfg, s, e), regimes)
-        res[name] = r
+        res[name] = run_backtest(df, strategy_cls(**params), window_cfg(cfg, s, e), regimes)
     test = res["test"]
-    # Cost stress: 2x and 3x all frictions on the test window
     stress = {}
     for mult in (2, 3):
         c = cfg.costs
         cfg2 = replace(cfg, costs=CostModel(c.spread_bps * mult, c.fee_bps * mult, c.slippage_bps * mult))
         r2 = run_backtest(df, strategy_cls(**params), window_cfg(cfg2, *sp.test))
         stress[f"x{mult}"] = {"sharpe": r2.metrics.get("sharpe"), "total_return": r2.metrics.get("total_return")}
-    # Parameter neighbourhood on train+validation (never on test)
-    nb = []
+    # One continuous run over the whole research window: registry returns for correlation / N_eff.
+    research_run = run_backtest(df, strategy_cls(**params), window_cfg(cfg, sp.train[0], sp.test[1]))
+    research_returns = research_run.returns
+    # Parameter neighbourhood: each variant is run over the research window; stability is judged on
+    # train+validation only, and every variant is registered as a trial (it is part of the search).
+    nb, nb_runs = [], []
+    tv_end = pd.Timestamp(sp.validation[1], tz="UTC")
+    test_start = pd.Timestamp(sp.test[0], tz="UTC")
     for q in neighbours(strategy_cls, params):
         if cancel and cancel():
             break
-        r3 = run_backtest(df, strategy_cls(**q), window_cfg(cfg, sp.train[0], sp.validation[1]))
-        nb.append({"params": q, "sharpe": r3.metrics.get("sharpe")})
+        r3 = run_backtest(df, strategy_cls(**q), window_cfg(cfg, sp.train[0], sp.test[1]))
+        rr = r3.returns
+        tv = rr[rr.index <= tv_end]
+        sh = sharpe_of(tv, cfg.periods_per_year)
+        nb.append({"params": q, "sharpe": sh})
+        nb_runs.append({"params": q, "returns": rr, "selection_returns": rr[rr.index >= test_start], "sharpe": sh})
     is_r = run_backtest(df, strategy_cls(**params), window_cfg(cfg, sp.train[0], sp.validation[1]))
     wf = walk_forward(df, strategy_cls, walkforward_grid or [params], cfg, cancel=cancel) if walkforward_grid is not None else None
     oos_r = test.returns
+    t_stat, hac_p = hac_t_test(oos_r)
     return {
         "splits": {"train": sp.train, "validation": sp.validation, "test": sp.test},
         "train": res["train"].metrics, "validation": res["validation"].metrics, "test": test.metrics,
@@ -171,6 +186,15 @@ def full_evaluation(df: pd.DataFrame, strategy_cls: type[Strategy], params: dict
         "psr_test": probabilistic_sharpe(oos_r),
         "dsr_test": deflated_sharpe(oos_r, max(n_trials, 1), trial_sharpe_var) if n_trials > 1 else probabilistic_sharpe(oos_r),
         "bootstrap_p_test": block_bootstrap_pvalue(oos_r),
+        "hac_t_test": t_stat,
+        "hac_p_test": hac_p,
         "walk_forward": wf,
         "_test_result": test,
+        "_research_returns": research_returns,
+        "_neighbour_runs": nb_runs,
     }
+
+
+def sharpe_of(r: pd.Series, ppy: int) -> float | None:
+    from .metrics import sharpe
+    return sharpe(r.dropna(), ppy)

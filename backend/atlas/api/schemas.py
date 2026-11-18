@@ -27,6 +27,7 @@ class BacktestRequest(BaseModel):
     costs: CostsIn = Field(default_factory=CostsIn)
     timeframe: Literal["1d", "1w"] = "1d"
     save: bool = True
+    include_holdout: bool = False  # exploratory only: results that include the sealed holdout are labelled as such
 
 
 class EvaluateRequest(BaseModel):

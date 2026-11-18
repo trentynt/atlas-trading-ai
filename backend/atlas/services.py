@@ -10,6 +10,8 @@ from .db import Database
 from .events import EventBus
 from .jobs import AutonomyConfig, JobManager, Scheduler
 from .paper.broker import PaperBroker
+from .research.registry import TrialRegistry
+from .research.validation import Validator
 from .risk.manager import RiskManager
 
 
@@ -23,6 +25,8 @@ class Services:
     paper: PaperBroker
     jobs: JobManager
     scheduler: Scheduler = field(init=False)
+    registry: TrialRegistry = field(init=False)
+    validator: Validator = field(init=False)
     orchestrator: object = field(init=False)
 
     @classmethod
@@ -35,6 +39,8 @@ class Services:
         paper = PaperBroker(db, bus, data, risk, settings.paper_initial_cash)
         jobs = JobManager(db, bus, settings.worker_threads, settings.max_job_runtime_s)
         s = cls(settings, db, bus, data, risk, paper, jobs)
+        s.registry = TrialRegistry(db)
+        s.validator = Validator(db, data, s.registry)
         from .agents.orchestrator import Orchestrator
         s.orchestrator = Orchestrator(db, bus, s)
         defaults = AutonomyConfig(enabled=settings.autonomy_on_start, research_interval_minutes=settings.research_interval_minutes,

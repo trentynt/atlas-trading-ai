@@ -3,7 +3,7 @@ import type { ViewProps } from '../App'
 import { Badge, Button, Disclosure, Drawer, EmptyState, ErrorBox, Field, KeyValue, Loading, Meter, Notice, Panel, PageHeader, Spinner, StatusDot, Toggle } from '../components/ui'
 import { api, useAction, useApi } from '../lib/api'
 import { useEventTrigger } from '../lib/events'
-import { AGENT_PLAIN, CHECK_PLAIN, strategyName } from '../lib/explain'
+import { AGENT_PLAIN, CHECK_PLAIN, DISPOSITION, dispositionOf, strategyName } from '../lib/explain'
 import { ago, duration, num, pct, tone } from '../lib/format'
 import { useToast } from '../lib/toast'
 import type { AgentInfo, AutonomyStatus, Job } from '../lib/types'
@@ -89,7 +89,7 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
             <div className="space-y-5">
               <p className="text-[15px] leading-relaxed text-ink-100">
                 Tested <b className="text-white">{latest.evaluated}</b> idea{latest.evaluated === 1 ? '' : 's'} in {duration(latest.duration_s)}.{' '}
-                {latest.accepted ? <><b className="text-up">{latest.accepted} passed</b> every check{latest.promoted?.length ? ' and moved to paper trading' : ''}.</> : <>None passed — <b className="text-white">which is the expected outcome most of the time.</b></>}
+                {latest.accepted ? <><b className="text-up">{latest.accepted} survived</b> current validation{latest.promoted?.length ? ' and moved to paper trading' : ''}.</> : <>None survived — <b className="text-white">which is the expected outcome most of the time.</b></>}{latest.dispositions?.requires_confirmation ? ` ${latest.dispositions.requires_confirmation} passed every research test and now await${latest.dispositions.requires_confirmation === 1 ? 's' : ''} confirmation on new data.` : ''}
                 {latest.dataset_changes?.length ? ` New market data arrived for ${latest.dataset_changes.join(', ')}.` : ''}
               </p>
               <div>
@@ -110,10 +110,10 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
                   {latest.leaderboard.slice(0, 5).map((x: any) => (
                     <li key={x.experiment_id}>
                       <button onClick={() => go('experiments', { id: x.experiment_id })} className="flex w-full items-center gap-3 py-2.5 text-left hover:opacity-90">
-                        <StatusDot tone={x.verdict === 'accepted' ? 'up' : 'dn'} />
+                        <StatusDot tone={DISPOSITION[dispositionOf(x) ?? 'rejected'].tone} />
                         <span className="flex-1 truncate text-[13.5px] text-white">{strategyName(x.strategy)} <span className="text-ink-300">on</span> {x.symbol}</span>
                         <span className={`num text-[13px] ${tone(x.test_return)}`}>{pct(x.test_return, 1)}</span>
-                        <span className="w-[86px] text-right text-[12px] text-ink-300">{x.verdict === 'accepted' ? 'Accepted' : 'Rejected'}</span>
+                        <span className="w-[150px] text-right text-[12px] text-ink-300">{DISPOSITION[dispositionOf(x) ?? 'rejected'].short}</span>
                       </button>
                     </li>
                   ))}
@@ -140,19 +140,19 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
                   <Field label="Ideas per cycle" hint="Bounded search budget per cycle."><select value={cfg.max_hypotheses_per_cycle} onChange={(e) => setAuto.run({ max_hypotheses_per_cycle: +e.target.value })}>{[4, 8, 12, 20, 40].map((x) => <option key={x}>{x}</option>)}</select></Field>
                   <Field label="Cycles per day (max)"><select value={cfg.max_cycles_per_day} onChange={(e) => setAuto.run({ max_cycles_per_day: +e.target.value })}>{[4, 8, 12, 24, 48].map((x) => <option key={x}>{x}</option>)}</select></Field>
                 </div>
-                <Toggle checked={cfg.auto_deploy_paper} onChange={(v) => setAuto.run({ auto_deploy_paper: v })} label="Move approved strategies into paper trading automatically" />
+                <Toggle checked={cfg.auto_deploy_paper} onChange={(v) => setAuto.run({ auto_deploy_paper: v })} label="Add strategies that survive validation to paper trading automatically" />
                 <KeyValue rows={[['Cycles today', `${auto.data?.cycles_today} of ${cfg.max_cycles_per_day}`], ['Last cycle', ago(auto.data?.research_cycle.last)], ['Next cycle', cfg.enabled ? `in ${duration(auto.data?.research_cycle.next_in_s)}` : 'Off'], ['Last data refresh', ago(auto.data?.data_refresh.last)]]} />
                 <Notice tone="am">Research runs only while SIGNAL is running. A stopped or sleeping Codespace pauses it.</Notice>
               </div>
             )}
           </Panel>
           <Panel title="What happens next" subtitle="Follow-up experiments your team has queued.">
-            {!queue.data ? <Loading /> : queue.data.length === 0 ? <EmptyState title="Nothing queued">Follow-ups are added for promising near-misses and to re-check approved ideas on new data.</EmptyState> : (
+            {!queue.data ? <Loading /> : queue.data.length === 0 ? <EmptyState title="Nothing queued">Follow-ups are added for near-misses. Each follow-up is a new trial and is counted.</EmptyState> : (
               <ul className="space-y-2">
                 {queue.data.slice(0, 6).map((q, i) => (
                   <li key={i} className="rounded-[12px] bg-white/[0.025] px-3.5 py-2.5 ring-1 ring-inset ring-white/[0.05]">
                     <div className="text-[13.5px] font-medium text-white">{strategyName(q.strategy)} <span className="font-normal text-ink-300">on</span> {q.symbol}</div>
-                    <div className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-ink-300">{q.rationale.startsWith('Re-test') ? 'Re-check an approved idea once new data arrives.' : 'Try nearby settings of an idea that almost passed.'}</div>
+                    <div className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-ink-300">{'Try nearby settings of an idea that almost passed. Counted as a new trial.'}</div>
                   </li>
                 ))}
                 {queue.data.length > 6 && <li className="text-[12.5px] text-ink-300">+{queue.data.length - 6} more</li>}
@@ -168,7 +168,7 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
             {reports.data.slice(1).map(({ id, created_at, report: r }) => (
               <li key={id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3 text-[13.5px]">
                 <span className="w-20 font-medium text-white">Cycle {r.cycle_id}</span>
-                <span className="text-ink-200">{r.accepted} of {r.evaluated} passed</span>
+                <span className="text-ink-200">{r.accepted} of {r.evaluated} survived</span>
                 <span className="text-ink-300">{duration(r.duration_s)} · {r.started === 'schedule' ? 'scheduled' : 'started manually'}</span>
                 <span className="ml-auto text-ink-300">{ago(created_at)}</span>
               </li>

@@ -102,12 +102,12 @@ export function PortfolioView({ go, reloadOverview }: ViewProps) {
         <Panel className="col-span-12 xl:col-span-8" title="Performance" subtitle="Simulated equity, one point per day.">
           {eqSeries[0].data.length > 1 && flat && <Notice>Equity has stayed at {money(eqSeries[0].data[0].value)} since {eqSeries[0].data[0].time} — no simulated trade has changed it yet. The curve will draw once it moves.</Notice>}
           {eqSeries[0].data.length > 1 && !flat ? <TimeChart series={eqSeries} height={280} format={fmtMoney} /> : eqSeries[0].data.length > 1 ? null : (
-            <EmptyState title="Your equity curve will appear here">It builds day by day while the paper engine runs. Start the engine and SIGNAL will evaluate approved strategies on every data refresh.</EmptyState>
+            <EmptyState title="Your equity curve will appear here">It builds day by day while the paper engine runs. Start the engine and SIGNAL will evaluate your paper strategies on every data refresh.</EmptyState>
           )}
         </Panel>
-        <Panel className="col-span-12 xl:col-span-4" title="Strategy allocations" subtitle="Strategies that passed every research check.">
+        <Panel className="col-span-12 xl:col-span-4" title="Strategy allocations" subtitle="Strategies that survived current validation, or that you added yourself.">
           {!strats.data ? <Loading /> : deployed.length === 0 ? (
-            <EmptyState title="No approved strategies yet" action={<Button small onClick={() => go('research')}>Run research</Button>}>Only ideas that pass every robustness check can trade here.</EmptyState>
+            <EmptyState title="No paper strategies" action={<Button small onClick={() => go('research')}>Run research</Button>}>Research adds a strategy here automatically only if it survives validation. That is rare by design.</EmptyState>
           ) : (
             <ul className="space-y-3">
               {deployed.map((s) => (
@@ -132,7 +132,7 @@ export function PortfolioView({ go, reloadOverview }: ViewProps) {
       </div>
 
       <Panel title="Positions" bodyClass="!px-0">
-        {!pos.data ? <div className="px-5"><Loading /></div> : pos.data.length === 0 ? <EmptyState title="No open positions">Positions appear when an approved strategy signals, or when you place a paper order.</EmptyState> : (
+        {!pos.data ? <div className="px-5"><Loading /></div> : pos.data.length === 0 ? <EmptyState title="No open positions">Positions appear when a paper strategy signals, or when you place a paper order.</EmptyState> : (
           <div className="overflow-x-auto">
             <table className="data">
               <thead><tr><th className="!pl-5">Market</th><th>Held by</th><th className="!text-right">Quantity</th><th className="!text-right">Average price</th><th className="!text-right">Last price</th><th className="!text-right">Value</th><th className="!pr-5 !text-right">Unrealised</th></tr></thead>
