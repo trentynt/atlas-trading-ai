@@ -199,7 +199,14 @@ export interface AgentInfo {
 export interface Job {
   id: number
   type: string
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'limited' | 'skipped'
+  user_id?: number
+  trigger?: string
+  attempts?: number
+  max_attempts?: number
+  next_run_at?: string | null
+  estimate?: Record<string, any>
+  usage?: Usage | null
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -309,19 +316,63 @@ export interface Overview {
   mode: string
 }
 
+export interface AutonomyConfig {
+  enabled: boolean
+  paused: boolean
+  enabled_at: string | null
+  schedule: 'daily' | 'interval' | 'manual'
+  daily_time: string
+  timezone: string
+  interval_hours: number
+  max_hypotheses_per_cycle: number
+  max_cycles_per_day: number
+  max_job_runtime_s: number
+  max_data_requests_per_cycle: number
+  monthly_cpu_budget_s: number
+  monthly_llm_token_budget: number
+  paper_tick_after_refresh: boolean
+  auto_deploy_paper: boolean
+}
+
+export interface Usage { cpu_s: number; wall_s: number; data_requests: number; llm_tokens: number; rss_mb_peak?: number }
+
 export interface AutonomyStatus {
-  config: {
-    enabled: boolean
-    research_interval_minutes: number
-    data_refresh_minutes: number
-    max_hypotheses_per_cycle: number
-    max_cycles_per_day: number
-    paper_tick_after_refresh: boolean
-    auto_deploy_paper: boolean
-  }
+  config: AutonomyConfig
+  state: 'on' | 'paused' | 'off'
   running: boolean
-  data_refresh: { last: string | null; next_in_s: Num }
-  research_cycle: { last: string | null; next_in_s: Num }
+  next_run_at: string | null
+  last_cycle: { id: number; created_at: string; status: string; trigger: string } | null
   cycles_today: number
+  active: { id: number; type: string; status: string }[]
+  usage_month: Usage & { jobs: number }
+  budget: { cpu_s: number; llm_tokens: number; cpu_remaining_s: number; llm_tokens_remaining: number }
+  caps: Record<string, number>
   note: string
+}
+
+export interface CycleHistory {
+  job_id: number
+  trigger: 'manual' | 'schedule' | 'run_now' | string
+  status: Job['status']
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  attempts: number
+  error: string | null
+  estimate: { hypotheses?: number; cpu_s?: number; data_requests?: number; llm_tokens?: number; basis?: string }
+  usage: Usage | null
+  result: { cycle_id: number; hypotheses: number; evaluated: number; accepted: number | null; dispositions: Record<string, number> | null; report_id: number; legacy?: boolean } | null
+}
+
+export interface AwayReport {
+  since: string
+  until: string
+  basis: string
+  headline: string
+  research: { cycles: number; by_status: Record<string, number>; by_trigger: Record<string, number>; ideas_tested: number; dispositions: Record<string, number>; trials_registered: number; holdout_looks: number; top_rejection_reasons: [string, number][]; notable: { experiment_id: number; symbol: string; strategy: string; disposition: string; q_value: number | null }[]; cycle_job_ids: number[] }
+  paper: { orders: number; fills: number; risk_blocks: number; blocked: { risk_event_id: number; rule: string; message: string; order_id: number | null }[]; equity_start: number | null; equity_end: number | null; realized_pnl: number }
+  data_issues: { id: number; ts: string; level: string; message: string }[]
+  problems: { job_id: number; type: string; status: string; error: string }[]
+  usage: { cpu_s: number; data_requests: number; llm_tokens: number }
+  provenance: string
 }

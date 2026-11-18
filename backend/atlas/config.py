@@ -36,11 +36,15 @@ class Settings(BaseSettings):
 
     # Autonomous research loop (defaults are deliberately conservative)
     autonomy_on_start: bool = False
-    research_interval_minutes: int = Field(default=60, ge=5)
     data_refresh_minutes: int = Field(default=30, ge=5)
-    max_hypotheses_per_cycle: int = Field(default=12, ge=1, le=200)
+    # System-wide caps. Each user's own limits (Research → Autonomy) can be lower, never higher.
+    max_hypotheses_per_cycle: int = Field(default=40, ge=1, le=200)
     max_cycles_per_day: int = Field(default=24, ge=1, le=288)
-    max_job_runtime_s: int = Field(default=900, ge=30)
+    max_job_runtime_s: int = Field(default=1800, ge=30)
+    max_data_requests_per_job: int = Field(default=2000, ge=10)
+    max_monthly_cpu_s: int = Field(default=360_000, ge=60)  # per user, CPU-seconds of research worker time
+    max_monthly_llm_tokens: int = Field(default=2_000_000, ge=0)
+    max_memory_mb: float | None = Field(default=3072, ge=256)  # backend process RSS; jobs stop above this
     worker_threads: int = Field(default=2, ge=1, le=8)
 
     # Paper trading

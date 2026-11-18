@@ -274,7 +274,20 @@ def _m2_data_quality(db: "Database") -> None:
     db._add_column("datasets", "quality_status", "TEXT")
 
 
+def _m3_durable_jobs(db: "Database") -> None:
+    """Durable queue: retries, idempotency, heartbeats, cancellation flag, estimated vs measured usage."""
+    for col, decl in (("idempotency_key", "TEXT"), ("attempts", "INTEGER DEFAULT 0"), ("max_attempts", "INTEGER DEFAULT 1"),
+                      ("next_run_at", "TEXT"), ("heartbeat_at", "TEXT"), ("worker_id", "TEXT"),
+                      ("cancel_requested", "INTEGER DEFAULT 0"), ("trigger", "TEXT DEFAULT 'manual'"),
+                      ("estimate_json", "TEXT"), ("usage_json", "TEXT")):
+        db._add_column("jobs", col, decl)
+    db._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_idem ON jobs(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL")
+    db._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, next_run_at)")
+    db._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id, type, created_at)")
+
+
 MIGRATIONS = [
     (1, _m1_users_trials_holdout),
     (2, _m2_data_quality),
+    (3, _m3_durable_jobs),
 ]

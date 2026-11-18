@@ -1,18 +1,18 @@
 import { useState } from 'react'
 import type { ViewProps } from '../App'
-import { Badge, Button, Disclosure, Drawer, EmptyState, ErrorBox, Field, KeyValue, Loading, Meter, Notice, Panel, PageHeader, Spinner, StatusDot, Toggle } from '../components/ui'
+import { Badge, Button, Disclosure, Drawer, EmptyState, ErrorBox, Loading, Meter, Notice, Panel, PageHeader, Spinner, StatusDot } from '../components/ui'
 import { api, useAction, useApi } from '../lib/api'
 import { useEventTrigger } from '../lib/events'
 import { AGENT_PLAIN, CHECK_PLAIN, DISPOSITION, dispositionOf, strategyName } from '../lib/explain'
 import { ago, duration, num, pct, tone } from '../lib/format'
 import { useToast } from '../lib/toast'
-import type { AgentInfo, AutonomyStatus, Job } from '../lib/types'
+import type { AgentInfo, Job } from '../lib/types'
+import { AutonomyPanel, CycleHistoryPanel } from '../components/Autonomy'
 
 const PIPELINE: [string, string][] = [['market', 'Read markets'], ['discovery', 'Propose ideas'], ['backtester', 'Test'], ['risk_analyst', 'Stress-test'], ['critic', 'Review'], ['portfolio', 'Allocate']]
 
 export function ResearchView({ go, reloadOverview }: ViewProps) {
   const agents = useApi<AgentInfo[]>('/agents', { poll: 6000 })
-  const auto = useApi<AutonomyStatus>('/autonomy', { poll: 15000 })
   const jobs = useApi<Job[]>('/jobs?limit=20', { poll: 4000 })
   const reports = useApi<{ id: number; created_at: string; report: any }[]>('/research/reports?limit=10')
   const queue = useApi<any[]>('/research/queue')
@@ -29,17 +29,15 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
     jobs.reload(); reloadOverview()
   })
   const cancel = useAction(async (id: number) => { await api.post(`/jobs/${id}/cancel`); toast({ tone: 'warning', title: 'Cancelling research cycle' }); jobs.reload() })
-  const setAuto = useAction(async (patch: Record<string, unknown>) => { auto.setData(await api.put<AutonomyStatus>('/autonomy', patch)); toast({ tone: 'success', title: 'Schedule updated' }); reloadOverview() })
   const running = jobs.data?.find((j) => j.type === 'research_cycle' && ['queued', 'running'].includes(j.status))
   const byName = Object.fromEntries((agents.data ?? []).map((a) => [a.name, a]))
-  const cfg = auto.data?.config
   const latest = reports.data?.[0]?.report
   const sel = agentSel ? byName[agentSel] : null
 
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Research" title="Your research team"
-        subtitle="Seven specialised agents propose trading ideas, test them on data they have never seen, and reject anything that could be luck. They are deterministic programs — no AI model makes trading decisions."
+        subtitle="Seven specialised agents propose trading ideas, test them on later data not used to design them, and reject anything that could be luck. They are deterministic programs — no AI model makes trading decisions."
         actions={running ? (
           <Button tone="danger" onClick={() => cancel.run(running.id)} disabled={cancel.pending}>Stop this cycle</Button>
         ) : (
@@ -50,7 +48,7 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
             <Button tone="primary" onClick={() => cycle.run()} disabled={cycle.pending}>Run research cycle</Button>
           </>
         )} />
-      <ErrorBox error={cycle.error || cancel.error || setAuto.error} />
+      <ErrorBox error={cycle.error || cancel.error} />
 
       <Panel title="The research cycle" tag={running ? <Badge tone="cy" dot>Running</Badge> : undefined}
         subtitle={running ? (running.message ?? 'Starting…') : 'Six steps, coordinated by the Orchestrator. Results are saved and can be reproduced exactly. Select a step to see its history.'}>
@@ -130,22 +128,7 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
 
         {/* schedule + queue */}
         <div className="col-span-12 flex flex-col gap-5 xl:col-span-5">
-          <Panel title="Schedule" subtitle="Let your team research on its own while SIGNAL is running.">
-            {!cfg ? <Loading /> : (
-              <div className="space-y-4">
-                <Toggle checked={cfg.enabled} onChange={(v) => setAuto.run({ enabled: v })} label={<span>Autonomous research <span className="text-ink-300">{cfg.enabled ? 'on' : 'off'}</span></span>} />
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Run research every" hint="Minimum 5 minutes."><select value={cfg.research_interval_minutes} onChange={(e) => setAuto.run({ research_interval_minutes: +e.target.value })}>{[15, 30, 60, 120, 240, 720, 1440].map((x) => <option key={x} value={x}>{x < 60 ? `${x} minutes` : `${x / 60} hour${x === 60 ? '' : 's'}`}</option>)}</select></Field>
-                  <Field label="Refresh data every"><select value={cfg.data_refresh_minutes} onChange={(e) => setAuto.run({ data_refresh_minutes: +e.target.value })}>{[15, 30, 60, 120, 240].map((x) => <option key={x} value={x}>{x < 60 ? `${x} minutes` : `${x / 60} hour${x === 60 ? '' : 's'}`}</option>)}</select></Field>
-                  <Field label="Ideas per cycle" hint="Bounded search budget per cycle."><select value={cfg.max_hypotheses_per_cycle} onChange={(e) => setAuto.run({ max_hypotheses_per_cycle: +e.target.value })}>{[4, 8, 12, 20, 40].map((x) => <option key={x}>{x}</option>)}</select></Field>
-                  <Field label="Cycles per day (max)"><select value={cfg.max_cycles_per_day} onChange={(e) => setAuto.run({ max_cycles_per_day: +e.target.value })}>{[4, 8, 12, 24, 48].map((x) => <option key={x}>{x}</option>)}</select></Field>
-                </div>
-                <Toggle checked={cfg.auto_deploy_paper} onChange={(v) => setAuto.run({ auto_deploy_paper: v })} label="Add strategies that survive validation to paper trading automatically" />
-                <KeyValue rows={[['Cycles today', `${auto.data?.cycles_today} of ${cfg.max_cycles_per_day}`], ['Last cycle', ago(auto.data?.research_cycle.last)], ['Next cycle', cfg.enabled ? `in ${duration(auto.data?.research_cycle.next_in_s)}` : 'Off'], ['Last data refresh', ago(auto.data?.data_refresh.last)]]} />
-                <Notice tone="am">Research runs only while SIGNAL is running. A stopped or sleeping Codespace pauses it.</Notice>
-              </div>
-            )}
-          </Panel>
+          <AutonomyPanel onChanged={() => { reloadOverview(); jobs.reload() }} />
           <Panel title="What happens next" subtitle="Follow-up experiments your team has queued.">
             {!queue.data ? <Loading /> : queue.data.length === 0 ? <EmptyState title="Nothing queued">Follow-ups are added for near-misses. Each follow-up is a new trial and is counted.</EmptyState> : (
               <ul className="space-y-2">
@@ -162,20 +145,7 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
         </div>
       </div>
 
-      {reports.data && reports.data.length > 1 && (
-        <Panel title="Earlier cycles">
-          <ul className="divide-y divide-white/[0.05]">
-            {reports.data.slice(1).map(({ id, created_at, report: r }) => (
-              <li key={id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3 text-[13.5px]">
-                <span className="w-20 font-medium text-white">Cycle {r.cycle_id}</span>
-                <span className="text-ink-200">{r.accepted} of {r.evaluated} survived</span>
-                <span className="text-ink-300">{duration(r.duration_s)} · {r.started === 'schedule' ? 'scheduled' : 'started manually'}</span>
-                <span className="ml-auto text-ink-300">{ago(created_at)}</span>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
+      <CycleHistoryPanel go={go} />
 
       <Drawer open={!!sel} onClose={() => setAgentSel(null)} width={640} title={sel ? <span><span className="block text-[12.5px] font-medium text-cy">Research agent</span>{sel.title}</span> : ''}>
         {sel && (

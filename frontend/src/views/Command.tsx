@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ViewProps } from '../App'
+import { AwayCard } from '../components/Autonomy'
 import { NeuralGraph } from '../components/NeuralGraph'
 import { Badge, Button, Drawer, EmptyState, KeyValue, Loading, Meter, Notice, Panel, Sparkline, Spinner, StatusDot, UP, DN, ACCENT, type Tone } from '../components/ui'
 import { api, slug, useAction, useApi } from '../lib/api'
 import { useEventTrigger } from '../lib/events'
-import { AGENT_PLAIN, CHECK_PLAIN, DISPOSITION, dispositionOf, REGIME_PLAIN, STRATEGY_PLAIN, checkName, plainReasons, shortDate, strategyName } from '../lib/explain'
+import { AGENT_PLAIN, CHECK_PLAIN, DISPOSITION, dispositionOf, localTime, REGIME_PLAIN, scheduleText, STRATEGY_PLAIN, checkName, plainReasons, shortDate, strategyName } from '../lib/explain'
 import { ago, money, num, pct, price, tone } from '../lib/format'
 import { symToParam } from '../lib/route'
 import { useToast } from '../lib/toast'
@@ -84,7 +85,8 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
   markets.data?.filter((m) => m.is_stale).forEach((m) => attention.push({ tone: 'am', title: `${m.symbol} data is stale`, body: `Last bar ${m.last_ts}. Strategies on it won't trade until it refreshes.`, action: ['Open market', () => go('markets', { sym: symToParam(m.symbol) })] }))
   if (deployed.length && o?.paper.state !== 'running') attention.push({ tone: 'am', title: `${deployed.length} paper strateg${deployed.length === 1 ? 'y is' : 'ies are'} waiting`, body: 'They survived current validation, but the paper engine is paused.', action: ['Open portfolio', () => go('portfolio')] })
   if ((c?.risk_rejections ?? 0) > 0) attention.push({ tone: 'mute', title: `${c!.risk_rejections} paper order${c!.risk_rejections === 1 ? ' was' : 's were'} blocked by risk limits`, body: 'Every block is recorded with the rule that triggered it.', action: ['See why', () => go('risk')] })
-  if (o && !o.autonomy.config.enabled) attention.push({ tone: 'mute', title: 'Autonomous research is off', body: 'Research runs only when you start it.', action: ['Set a schedule', () => go('research')] })
+  if (o && o.autonomy.state === 'off') attention.push({ tone: 'mute', title: 'Autonomous research is off', body: 'Research runs only when you start it.', action: ['Set a schedule', () => go('research')] })
+  if (o?.autonomy.state === 'paused') attention.push({ tone: 'am', title: 'Autonomous research is paused', body: 'Scheduled cycles are skipped until you resume.', action: ['Resume', () => go('research')] })
 
   return (
     <div className="space-y-6">
@@ -104,6 +106,7 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
         </div>
       </section>
       {cycle.error && <Notice tone="dn" title="Couldn't start research">{cycle.error}</Notice>}
+      <AwayCard go={go} />
 
       {/* network + side column */}
       <div className="grid grid-cols-12 gap-5">
@@ -185,7 +188,7 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
           )}
         </Panel>
         <Panel className="col-span-12 lg:col-span-5" title="Research cycle"
-          subtitle={running ? 'Running now.' : o?.autonomy.config.enabled ? `Runs every ${o.autonomy.config.research_interval_minutes} minutes while SIGNAL is running.` : 'Runs when you start it. Set a schedule on the Research page.'}
+          subtitle={running ? 'Running now.' : o?.autonomy.state === 'on' ? `${scheduleText(o.autonomy.config)}. Next: ${localTime(o.autonomy.next_run_at)}.` : o?.autonomy.state === 'paused' ? 'Autonomous research is paused.' : 'Runs when you start it. Set a schedule on the Research page.'}
           right={<Button small tone="ghost" onClick={() => go('research')}>Open research</Button>}>
           {running ? (
             <div>

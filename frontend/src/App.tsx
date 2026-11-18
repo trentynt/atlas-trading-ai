@@ -128,7 +128,7 @@ function Shell() {
           <div className="ml-auto flex items-center gap-2">
             {!connected && <Chip tone="dn" label="Reconnecting…" title="The connection to the SIGNAL research engine dropped. Retrying automatically." />}
             {o?.kill_switch && <Chip tone="dn" label="Kill switch on" title="Only exposure-reducing paper orders are accepted" onClick={() => go('risk')} />}
-            {o?.autonomy.config.enabled && <span className="hidden sm:contents"><Chip tone="cy" label="Autonomous research on" title="Research runs on a schedule" onClick={() => go('research')} /></span>}
+            {o?.autonomy.state === 'on' && <span className="hidden sm:contents"><Chip tone="cy" label="Autonomous research on" title="Research runs on a schedule" onClick={() => go('research')} /></span>}
             {o && (
               <button onClick={() => go('portfolio')} className="ml-1 hidden items-baseline gap-2 rounded-[10px] px-2.5 py-1 transition-colors hover:bg-white/[0.05] lg:flex" title="Simulated paper equity">
                 <span className="text-[12px] text-ink-300">Paper</span>

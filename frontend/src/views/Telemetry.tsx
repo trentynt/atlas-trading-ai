@@ -5,7 +5,7 @@ import { api, useAction, useApi } from '../lib/api'
 import { useEvents, useEventTrigger } from '../lib/events'
 import { ago, compact, duration, num, time } from '../lib/format'
 import { useToast } from '../lib/toast'
-import { humanizeEvent } from '../lib/explain'
+import { JOB_STATUS, humanizeEvent } from '../lib/explain'
 import type { AtlasEvent, Job, Market } from '../lib/types'
 
 const CATS = [
@@ -14,7 +14,6 @@ const CATS = [
 ] as const
 const CAT_TONE: Record<string, Tone> = { research: 'vi', agent: 'cy', data: 'bl', paper: 'am', risk: 'dn', job: 'mute', system: 'mute' }
 const JOB_NAME: Record<string, string> = { research_cycle: 'Research cycle', data_refresh: 'Market data refresh' }
-const JOB_STATUS: Record<string, [string, Tone]> = { completed: ['Completed', 'up'], failed: ['Failed', 'dn'], interrupted: ['Interrupted', 'dn'], running: ['Running', 'cy'], queued: ['Queued', 'mute'], cancelled: ['Cancelled', 'am'] }
 
 export function TelemetryView({ overview: o }: ViewProps) {
   const { events, connected, rate } = useEvents()
@@ -32,7 +31,7 @@ export function TelemetryView({ overview: o }: ViewProps) {
   const shown = useMemo(() => events.filter((e) => (cat === 'all' || e.category === cat) && (!problemsOnly || e.level !== 'info') && (!q || (e.message + ' ' + humanizeEvent(e.message)).toLowerCase().includes(q.toLowerCase()))), [events, cat, q, problemsOnly])
   const day = Date.now() - 86400_000
   const recent = jobs.data?.filter((j) => new Date(j.created_at).getTime() > day) ?? []
-  const failed = recent.filter((j) => ['failed', 'interrupted'].includes(j.status)).length
+  const failed = recent.filter((j) => ['failed', 'interrupted', 'limited'].includes(j.status)).length
   const active = jobs.data?.filter((j) => ['queued', 'running'].includes(j.status)) ?? []
   const fresh = markets.data?.filter((m) => !m.is_stale).length ?? 0
   const warns = events.filter((e) => e.level !== 'info').length

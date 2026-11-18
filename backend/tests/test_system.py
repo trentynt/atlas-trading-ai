@@ -82,6 +82,8 @@ def test_research_cycle_end_to_end(client):
 
 
 def test_job_cancellation(client):
+    assert client.post("/api/jobs/research-cycle", json={"max_hypotheses": 40, "refresh": False}).status_code == 429  # above user limit
+    assert client.put("/api/autonomy", json={"max_hypotheses_per_cycle": 40}).status_code == 200
     jid = client.post("/api/jobs/research-cycle", json={"max_hypotheses": 40, "refresh": False}).json()["job_id"]
     time.sleep(0.5)
     assert client.post(f"/api/jobs/{jid}/cancel").status_code == 200
@@ -130,9 +132,14 @@ def test_websocket_streams_real_events(client):
 
 
 def test_autonomy_config_validation(client):
-    assert client.put("/api/autonomy", json={"research_interval_minutes": 1}).status_code == 422
-    st = client.put("/api/autonomy", json={"enabled": True, "research_interval_minutes": 30}).json()
-    assert st["config"]["enabled"] is True and "Codespace" in st["note"]
+    assert client.put("/api/autonomy", json={"interval_hours": 0}).status_code == 422
+    assert client.put("/api/autonomy", json={"daily_time": "25:00"}).status_code == 422
+    assert client.put("/api/autonomy", json={"timezone": "Mars/Olympus"}).status_code == 422
+    assert client.put("/api/autonomy", json={"max_hypotheses_per_cycle": 41}).status_code == 422  # above system cap (40)
+    assert client.put("/api/autonomy", json={"bogus": 1}).status_code == 422
+    assert client.get("/api/autonomy").json()["state"] == "off"  # opt-in: off by default
+    st = client.put("/api/autonomy", json={"enabled": True, "schedule": "daily", "daily_time": "02:30", "timezone": "America/Toronto"}).json()
+    assert st["config"]["enabled"] is True and st["state"] == "on" and st["next_run_at"] and "Codespace" in st["note"]
 
 
 def test_waitlist_signup_validation_and_idempotency(client):
@@ -144,3 +151,41 @@ def test_waitlist_signup_validation_and_idempotency(client):
     assert client.get("/api/waitlist/count").json()["count"] == 1
     assert client.post("/api/waitlist", json={"email": "not-an-email"}).status_code == 422
     assert client.post("/api/waitlist", json={"email": "a@b.co", "markets": ["lottery"]}).status_code == 422
+
+
+def test_autonomy_controls_history_and_away_report(client):
+    wait_job(client, client.post("/api/markets/refresh", json={}).json()["job_id"])
+    st = client.post("/api/autonomy/enable").json()
+    assert st["state"] == "on" and st["config"]["enabled_at"]
+    assert client.post("/api/autonomy/pause").json()["state"] == "paused"
+    assert client.post("/api/autonomy/resume").json()["state"] == "on"
+    client.put("/api/autonomy", json={"max_hypotheses_per_cycle": 3})
+    run = client.post("/api/autonomy/run-now").json()
+    j = wait_job(client, run["job_id"])
+    assert j["status"] == "completed" and j["trigger"] == "run_now"
+    assert client.post("/api/autonomy/bogus").status_code == 404
+    h = client.get("/api/autonomy/history").json()[0]
+    assert h["job_id"] == run["job_id"] and h["estimate"]["hypotheses"] == 3 and h["estimate"]["basis"]
+    assert h["usage"]["cpu_s"] > 0 and h["usage"]["wall_s"] > 0 and h["result"]["evaluated"] >= 1
+    st = client.get("/api/autonomy").json()
+    assert st["usage_month"]["cpu_s"] >= h["usage"]["cpu_s"] and st["budget"]["cpu_remaining_s"] < st["budget"]["cpu_s"]
+    rep = client.get("/api/reports/away", params={"since": "2000-01-01T00:00:00+00:00"}).json()
+    assert rep["research"]["cycles"] >= 1 and rep["research"]["ideas_tested"] == h["result"]["evaluated"]
+    assert rep["usage"]["cpu_s"] >= h["usage"]["cpu_s"] and "simulated" in rep["provenance"]
+    assert client.get("/api/reports/away", params={"since": "yesterday"}).status_code == 422
+    assert client.post("/api/me/seen").json()["last_seen_at"]
+    # Another user's job is invisible and cannot be cancelled
+    sv = client.app.state.services
+    other = sv.db.insert("jobs", {"type": "research_cycle", "status": "queued", "created_at": "2099-01-01T00:00:00+00:00",
+                                  "user_id": 77, "next_run_at": "2099-01-01T00:00:00+00:00"})
+    assert client.get(f"/api/jobs/{other}").status_code == 404
+    assert client.post(f"/api/jobs/{other}/cancel").status_code == 409
+    assert all(x["user_id"] in (1, 0) for x in client.get("/api/jobs").json())
+
+
+def test_daily_cycle_limit_returns_429(client):
+    wait_job(client, client.post("/api/markets/refresh", json={}).json()["job_id"])
+    client.put("/api/autonomy", json={"max_cycles_per_day": 1, "max_hypotheses_per_cycle": 2})
+    wait_job(client, client.post("/api/jobs/research-cycle", json={"max_hypotheses": 2, "refresh": False}).json()["job_id"])
+    r = client.post("/api/jobs/research-cycle", json={"max_hypotheses": 2, "refresh": False})
+    assert r.status_code == 429 and "Daily research-cycle limit" in r.json()["detail"]

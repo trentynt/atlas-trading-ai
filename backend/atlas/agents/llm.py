@@ -36,6 +36,12 @@ def narrate(report: dict) -> dict | None:
         return None
     import anthropic
 
+    from .. import usage
+
+    meter = usage.current()
+    if meter is not None and not meter.llm_allowed(20000):
+        log.info("LLM narration skipped: monthly token budget reached")
+        return None
     s = get_settings()
     client = anthropic.Anthropic(api_key=s.anthropic_api_key) if s.anthropic_api_key else anthropic.Anthropic()
     try:
@@ -54,6 +60,8 @@ def narrate(report: dict) -> dict | None:
     except anthropic.APIConnectionError as e:
         log.warning("LLM narration connection error: %s", e)
         return None
+    if meter is not None and getattr(resp, "usage", None) is not None:
+        meter.add_llm_tokens((resp.usage.input_tokens or 0) + (resp.usage.output_tokens or 0))
     if resp.stop_reason == "refusal":
         return None
     text = "".join(b.text for b in resp.content if b.type == "text").strip()

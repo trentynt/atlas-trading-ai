@@ -17,6 +17,8 @@ from ..data.instruments import INSTRUMENTS, get_instrument, unslug
 from ..data.licensing import describe as describe_licenses
 from ..data.service import FX_LABEL, INTRADAY, DataUnavailable, data_label
 from ..db import LOCAL_USER_ID, dumps, loads, utcnow
+from ..jobs import LimitError
+from ..reports import away_report, mark_seen
 from ..research.registry import METHODOLOGY
 from ..research.validation import DISPOSITION_LABEL, GATES_V2
 from ..forecasting.models import MODELS, forecast, rolling_evaluation
@@ -81,7 +83,7 @@ def overview(request: Request):
         "events": q("SELECT COUNT(*) n FROM events")["n"],
         "agent_runs": q("SELECT COUNT(*) n FROM agent_runs")["n"],
         "risk_rejections": q("SELECT COUNT(*) n FROM risk_events WHERE decision='reject'")["n"],
-        "jobs_active": len(sv.jobs.active()),
+        "jobs_active": len(sv.jobs.active(user_id=uid(request))),
     }
     try:
         load = os.getloadavg()
@@ -89,7 +91,7 @@ def overview(request: Request):
         load = None
     db_size = sv.settings.db_path.stat().st_size if sv.settings.db_path.exists() else 0
     return {"counts": counts, "uptime_s": round(time.time() - STARTED), "code_version": code_version(), "load_avg": load,
-            "db_bytes": db_size, "autonomy": sv.scheduler.status(), "llm": llm_status(), "paper": sv.paper.account(),
+            "db_bytes": db_size, "autonomy": sv.scheduler.status(uid(request)), "llm": llm_status(), "paper": sv.paper.account(),
             "kill_switch": sv.risk.limits().kill_switch, "mode": "PAPER_ONLY"}
 
 
@@ -404,11 +406,7 @@ def research_integrity(request: Request):
 @router.post("/research/revalidate")
 def research_revalidate(request: Request):
     """Re-evaluate legacy findings under the current methodology (background job)."""
-    sv = svc(request)
-    u = uid(request)
-    from ..research.revalidate import revalidate
-    jid = sv.jobs.submit("revalidation", lambda ctx, p: {k: v for k, v in revalidate(sv, u, ctx.cancelled, ctx.progress).items()}, {"user_id": u})
-    return {"job_id": jid}
+    return {"job_id": svc(request).submit_revalidation(uid(request))}
 
 
 # ---------------- agents & jobs ----------------
@@ -427,43 +425,114 @@ def agent_runs(request: Request, name: str, limit: int = Query(50, le=500)):
 
 
 @router.get("/jobs")
-def jobs(request: Request, limit: int = Query(50, le=500)):
-    return svc(request).jobs.list(limit)
+def jobs(request: Request, limit: int = Query(50, le=500), type: str | None = None):
+    """Your jobs plus shared system jobs (market-data refreshes, user 0)."""
+    return svc(request).jobs.list(limit, user_id=uid(request), job_type=type)
+
+
+@router.get("/jobs/{jid}")
+def job(request: Request, jid: int):
+    j = svc(request).jobs.get(jid)
+    if not j or j["user_id"] not in (uid(request), 0):
+        raise HTTPException(404, "job not found")
+    return j
 
 
 @router.post("/jobs/research-cycle")
 def research_cycle(request: Request, body: S.CycleRequest):
     try:
-        return {"job_id": svc(request).submit_research_cycle({**body.model_dump(), "trigger": "manual",
-                                                               "symbols": [_sym(s) for s in body.symbols] if body.symbols else None})}
-    except RuntimeError as e:
-        raise HTTPException(409, str(e))
+        return {"job_id": svc(request).submit_research_cycle(
+            {**body.model_dump(), "trigger": "manual", "symbols": [_sym(s) for s in body.symbols] if body.symbols else None},
+            user_id=uid(request))}
+    except LimitError as e:
+        raise HTTPException(429, str(e))
 
 
 @router.post("/jobs/{jid}/cancel")
 def cancel(request: Request, jid: int):
-    if not svc(request).jobs.cancel(jid):
+    if not svc(request).jobs.cancel(jid, user_id=uid(request)):
         raise HTTPException(409, "job is not active")
     return {"cancel_requested": jid}
 
 
+# ---------------- autonomy (opt-in, per user) ----------------
 @router.get("/autonomy")
 def autonomy(request: Request):
-    return svc(request).scheduler.status()
+    return svc(request).scheduler.status(uid(request))
 
 
 @router.put("/autonomy")
 def autonomy_update(request: Request, patch: dict):
     try:
-        svc(request).scheduler.update(patch)
-    except Exception as e:
+        svc(request).scheduler.update(patch, uid(request))
+    except Exception as e:  # pydantic ValidationError or cap violation
         raise HTTPException(422, str(e))
-    return svc(request).scheduler.status()
+    return svc(request).scheduler.status(uid(request))
+
+
+@router.post("/autonomy/{action}")
+def autonomy_action(request: Request, action: str):
+    sv, u = svc(request), uid(request)
+    if action == "enable":
+        sv.scheduler.update({"enabled": True}, u)
+    elif action == "disable":
+        sv.scheduler.update({"enabled": False}, u)
+    elif action == "pause":
+        sv.scheduler.update({"paused": True}, u)
+    elif action == "resume":
+        sv.scheduler.update({"paused": False}, u)
+    elif action == "run-now":
+        cfg = sv.scheduler.config(u)
+        try:
+            jid = sv.submit_research_cycle({"max_hypotheses": cfg.max_hypotheses_per_cycle, "trigger": "run_now"},
+                                           user_id=u, trigger="run_now")
+        except LimitError as e:
+            raise HTTPException(429, str(e))
+        return {**sv.scheduler.status(u), "job_id": jid}
+    else:
+        raise HTTPException(404, "unknown action")
+    return sv.scheduler.status(u)
+
+
+@router.get("/autonomy/history")
+def autonomy_history(request: Request, limit: int = Query(30, le=200)):
+    rows = svc(request).jobs.list(limit, user_id=uid(request), job_type="research_cycle")
+    return [{"job_id": r["id"], "trigger": r["trigger"], "status": r["status"], "created_at": r["created_at"],
+             "started_at": r["started_at"], "finished_at": r["finished_at"], "attempts": r["attempts"],
+             "error": (r["error"] or "").split("\n")[0][:240] or None,
+             "estimate": r["estimate"], "usage": r["usage"],
+             "result": _cycle_result(r["result"])} for r in rows]
+
+
+def _cycle_result(res: dict | None) -> dict | None:
+    """Cycles from before methodology v2 reported an 'accepted' count that was later re-evaluated
+    (docs/STATISTICS.md). Their outcome counts are withheld rather than shown as survivors."""
+    if not res:
+        return None
+    out = {k: res.get(k) for k in ("cycle_id", "hypotheses", "evaluated", "accepted", "dispositions", "report_id")}
+    if "dispositions" not in res:
+        out.update(accepted=None, legacy=True)
+    return out
+
+
+@router.get("/reports/away")
+def report_away(request: Request, since: str | None = None):
+    if since:
+        try:
+            datetime.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(422, "since must be an ISO-8601 timestamp")
+    return away_report(svc(request).db, uid(request), since)
+
+
+@router.post("/me/seen")
+def me_seen(request: Request):
+    return mark_seen(svc(request).db, uid(request))
 
 
 @router.get("/research/queue")
 def research_queue(request: Request):
-    return svc(request).db.kv_get("research_queue", [])
+    return svc(request).db.kv_get(f"research_queue:{uid(request)}", [])
 
 
 @router.get("/research/reports")

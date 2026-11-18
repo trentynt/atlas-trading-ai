@@ -110,3 +110,24 @@ export const DISPOSITION: Record<Disposition, { label: string; short: string; to
 }
 export const dispositionOf = (e: { disposition?: string | null; verdict?: string | null }): Disposition | null =>
   (e.disposition as Disposition) ?? (e.verdict === 'accepted' ? 'requires_revalidation' : e.verdict ? 'rejected' : null)
+
+// ---------------- jobs & autonomy ----------------
+export const JOB_STATUS: Record<string, [string, 'up' | 'dn' | 'cy' | 'mute' | 'am']> = {
+  completed: ['Completed', 'up'], failed: ['Failed', 'dn'], interrupted: ['Interrupted', 'dn'], running: ['Running', 'cy'],
+  queued: ['Queued', 'mute'], cancelled: ['Cancelled', 'am'], limited: ['Stopped at a limit', 'am'], skipped: ['Skipped', 'mute'],
+}
+export const TRIGGER: Record<string, string> = { schedule: 'Scheduled', run_now: 'Run now', manual: 'Manual' }
+
+/** "Every day at 02:00 (America/Toronto)" — the schedule in plain words. */
+export function scheduleText(c: { schedule: string; daily_time: string; timezone: string; interval_hours: number }) {
+  if (c.schedule === 'manual') return 'Only when you start it'
+  if (c.schedule === 'interval') return `Every ${c.interval_hours} hour${c.interval_hours === 1 ? '' : 's'}`
+  return `Every day at ${c.daily_time} (${c.timezone})`
+}
+
+/** Local date-time for a UTC ISO timestamp, e.g. "Thu 19 Nov, 02:00". */
+export function localTime(iso: string | null | undefined) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
