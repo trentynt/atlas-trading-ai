@@ -47,7 +47,7 @@ export const AGENT_PLAIN: Record<string, { role: string; verb: string }> = {
 
 export const REGIME_PLAIN: Record<string, string> = {
   trend_up: 'Trending up', trend_down: 'Trending down', range: 'Range-bound',
-  low_vol: 'calm', normal_vol: 'normal volatility', high_vol: 'volatile',
+  low_vol: 'low volatility', normal_vol: 'normal volatility', high_vol: 'high volatility',
 }
 
 export function greeting(d = new Date()) {

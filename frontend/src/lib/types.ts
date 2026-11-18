@@ -20,6 +20,29 @@ export interface Market {
   is_stale: boolean
   missing_periods: Num
   price_decimals: number
+  quality_status: 'ok' | 'warn' | 'fail' | null
+  quality_issues: { level: 'info' | 'warn' | 'fail'; code: string; text: string }[]
+  cross_source: CrossSource | null
+  licensed: boolean
+  deployment_mode: 'personal' | 'beta'
+  intraday: string[]
+  costs: { spread_bps: number; fee_bps: number; slippage_bps: number }
+  kind: 'historical' | 'reference'
+  label: string
+}
+
+export interface CrossSource {
+  secondary: string
+  status: 'ok' | 'mismatch' | 'possible_time_shift' | 'no_overlap' | 'unavailable'
+  overlap?: number
+  start?: string
+  end?: string
+  median_abs_bps?: number
+  p95_abs_bps?: number
+  max_abs_bps?: number
+  days_over_tolerance?: number
+  tolerance_bps?: number
+  error?: string
 }
 
 export interface Bar { t: string; o: Num; h: Num; l: Num; c: number; v: Num }

@@ -181,7 +181,7 @@ export function PortfolioView({ go, reloadOverview }: ViewProps) {
 }
 
 function NewOrder({ open, onClose, markets, equity, onDone, goRisk }: { open: boolean; onClose: () => void; markets: Market[]; equity: number; onDone: () => void; goRisk: () => void }) {
-  const [form, setForm] = useState({ symbol: 'EUR/USD', side: 'buy' as 'buy' | 'sell', qty: '10000', type: 'market', limit_price: '' })
+  const [form, setForm] = useState({ symbol: 'BTC/USD', side: 'buy' as 'buy' | 'sell', qty: '0.01', type: 'market', limit_price: '' })
   const [result, setResult] = useState<Order | null>(null)
   const toast = useToast()
   const place = useAction(async () => {

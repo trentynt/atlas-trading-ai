@@ -9,7 +9,7 @@ import { REGIME_PLAIN, shortDate } from '../lib/explain'
 import { num, pct, price, tone } from '../lib/format'
 import { paramToSym, symToParam, useParam } from '../lib/route'
 import { useToast } from '../lib/toast'
-import type { Bar, Market } from '../lib/types'
+import type { Bar, CrossSource, Market } from '../lib/types'
 
 const smaLine = (bars: Bar[], n: number) => {
   const out: { time: string; value: number }[] = []
@@ -25,13 +25,26 @@ const smaLine = (bars: Bar[], n: number) => {
 const RANGES = [{ value: '90', label: '3M' }, { value: '252', label: '1Y' }, { value: '756', label: '3Y' }, { value: '5000', label: 'All' }]
 const REGIME_COLOR: Record<string, string> = { trend_up: '#6ee7a8', trend_down: '#ff6b6b', range: '#7f8a97' }
 const FUTURE = ['Stocks', 'ETFs', 'Options', 'Futures']
+type TF = '1d' | '1w' | '6h' | '1h'
+const QUALITY: Record<string, { tone: 'up' | 'am' | 'dn'; label: string }> = { ok: { tone: 'up', label: 'Checks passed' }, warn: { tone: 'am', label: 'Usable with caveats' }, fail: { tone: 'dn', label: 'Failed checks' } }
+const SOURCE: Record<string, string> = { frankfurter: 'European Central Bank via Frankfurter', coinbase: 'Coinbase Exchange', kraken: 'Kraken' }
+
+function crossText(c: CrossSource | null | undefined) {
+  if (!c) return 'Not available for this market'
+  if (c.status === 'unavailable') return `${SOURCE[c.secondary] ?? c.secondary} could not be reached for comparison`
+  if (c.status === 'no_overlap') return 'No overlapping days to compare'
+  const base = `Median gap ${num(c.median_abs_bps, 1)} bps vs ${SOURCE[c.secondary] ?? c.secondary} over ${c.overlap} days`
+  return c.status === 'ok' ? `${base}; agrees` : `${base}; ${c.days_over_tolerance} day(s) differ by more than ${c.tolerance_bps} bps`
+}
 
 export function MarketsView({ go }: ViewProps) {
   const markets = useApi<Market[]>('/markets', { poll: 60000 })
-  const [symP, setSymP] = useParam('sym', 'EUR-USD')
+  const [symP, setSymP] = useParam('sym', 'BTC-USD')
   const sym = paramToSym(symP)
-  const [tf, setTf] = useState<'1d' | '1w'>('1d')
+  const [tfSel, setTf] = useState<TF>('1d')
   const [range, setRange] = useState('252')
+  const symIsFx = markets.data?.find((x) => x.symbol === sym)?.asset_class === 'fx'
+  const tf: TF = symIsFx && (tfSel === '1h' || tfSel === '6h') ? '1d' : tfSel
   const bars = useApi<{ bars: Bar[]; dataset: any }>(`/markets/${slug(sym)}/bars?timeframe=${tf}&limit=5000`, { deps: [sym, tf] })
   const quality = useApi<any>(`/markets/${slug(sym)}/quality`, { deps: [sym] })
   const regime = useApi<any>(`/markets/${slug(sym)}/regime`, { deps: [sym] })
@@ -51,15 +64,17 @@ export function MarketsView({ go }: ViewProps) {
 
   const m = markets.data?.find((x) => x.symbol === sym)
   const isFx = m?.asset_class === 'fx'
+  const intraday = tf === '1h' || tf === '6h'
   const all = bars.data?.bars ?? []
   const visible = useMemo(() => {
+    if (intraday) return all
     const n = tf === '1w' ? Math.ceil(+range / 5) : +range
     return all.slice(-(n + 200)) // keep 200 extra bars so moving averages are defined at the left edge
-  }, [all, range, tf])
+  }, [all, range, tf, intraday])
   const series = useMemo<TSeries[]>(() => {
     const b = visible
     if (!b.length) return []
-    const n = tf === '1w' ? Math.ceil(+range / 5) : +range
+    const n = intraday ? Math.max(b.length - 200, 1) : tf === '1w' ? Math.ceil(+range / 5) : +range
     const cut = b.length > n ? b[b.length - n].t : b[0].t
     const keep = <T extends { time: string }>(xs: T[]) => xs.filter((x) => x.time >= cut)
     const ohlc = b.every((x) => x.o !== null)
@@ -70,7 +85,7 @@ export function MarketsView({ go }: ViewProps) {
     s.push({ kind: 'line', id: 'ma200', label: '200-period average', color: SERIES[1], data: keep(smaLine(b, 200)), width: 1 })
     if (b.every((x) => x.v !== null)) s.push({ kind: 'histogram', id: 'vol', label: 'Volume', color: 'rgba(127,138,151,0.35)', data: keep(b.map((x) => ({ time: x.t, value: x.v! }))) })
     return s
-  }, [visible, sym, range, tf])
+  }, [visible, sym, range, tf, intraday])
   const dec = m?.price_decimals ?? 4
   const fmt = useMemo(() => (v: number) => v.toFixed(dec), [dec])
   const q = quality.data?.quality
@@ -82,11 +97,11 @@ export function MarketsView({ go }: ViewProps) {
     <div className="grid grid-cols-12 gap-5">
       {/* watchlist */}
       <aside className="col-span-12 lg:col-span-3 2xl:col-span-2">
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-[15px] font-semibold text-white">Watchlist</h2><span className="text-[12px] text-ink-300">Daily data</span></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="text-[15px] font-semibold text-white">Watchlist</h2><span className="text-[12px] text-ink-300">Not live</span></div>
         <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
-          {(['fx', 'crypto'] as const).map((cls) => (
+          {(['crypto', 'fx'] as const).map((cls) => (
             <div key={cls} className="contents lg:block">
-              <div className="hidden px-1 pt-1 pb-1.5 text-[12px] font-medium text-ink-400 lg:block">{cls === 'fx' ? 'Forex · ECB reference rates' : 'Crypto · exchange candles'}</div>
+              <div className="hidden px-1 pt-1 pb-1.5 text-[12px] font-medium text-ink-400 lg:block">{cls === 'fx' ? 'Forex · daily ECB reference rates' : 'Crypto · historical candles'}</div>
               {(markets.data ?? []).filter((x) => x.asset_class === cls).map((x) => {
                 const on = x.symbol === sym
                 return (
@@ -136,17 +151,23 @@ export function MarketsView({ go }: ViewProps) {
         </div>
 
         {isFx && (
-          <Notice tone="am" title="Reference rate, not a live quote">
+          <Notice tone="am" title="Daily ECB reference rates — not live forex quotes.">
             The European Central Bank publishes one official {sym} rate per business day (around 16:00 CET). It is not an executable price, and there are no intraday highs, lows or volume. Backtests on it fill one full day late to stay honest.
           </Notice>
         )}
 
-        <Panel title="Price history" right={<>
-          <Segmented size="sm" value={range} onChange={setRange} options={RANGES} />
-          <Segmented size="sm" value={tf} onChange={setTf} options={[{ value: '1d', label: 'Daily' }, { value: '1w', label: 'Weekly' }]} />
+        {m && !m.licensed && (
+          <Notice tone="am" title="Data source not licensed for this deployment">
+            This beta only shows data from sources whose terms allow it. {sym} has no such source yet, so its prices are hidden rather than shown from an unverified source.
+          </Notice>
+        )}
+
+        <Panel title="Price history" subtitle={m ? (intraday ? `Historical ${tf} candles (UTC), limited lookback. Not live: the open candle is excluded. Research uses daily data.` : m.label) : undefined} right={<>
+          {!intraday && <Segmented size="sm" value={range} onChange={setRange} options={RANGES} />}
+          <Segmented size="sm" value={tf} onChange={(v) => setTf(v as TF)} options={[...(isFx ? [] : [{ value: '1h', label: '1H' }, { value: '6h', label: '6H' }]), { value: '1d', label: 'Daily' }, { value: '1w', label: 'Weekly' }]} />
         </>}>
           <ErrorBox error={bars.error || refresh.error} onRetry={bars.reload} />
-          <div className="mb-2"><Legend items={[{ label: isFx ? 'Reference rate' : 'Daily candles', color: '#eef2f6' }, { label: '50-period average', color: SERIES[0] }, { label: '200-period average', color: SERIES[1] }]} /></div>
+          <div className="mb-2"><Legend items={[{ label: isFx ? 'Reference rate' : intraday ? `${tf} candles` : tf === '1w' ? 'Weekly candles' : 'Daily candles', color: '#eef2f6' }, { label: '50-period average', color: SERIES[0] }, { label: '200-period average', color: SERIES[1] }]} /></div>
           {series.length ? <TimeChart series={series} height={400} format={fmt} /> : bars.loading ? <Loading rows={6} /> : (
             <EmptyState title="No price history yet" action={<Button small onClick={() => refresh.run()}>Fetch data</Button>}>Data for {sym} hasn't been downloaded. Fetching takes a few seconds.</EmptyState>
           )}
@@ -181,17 +202,25 @@ export function MarketsView({ go }: ViewProps) {
               </div>
             )}
           </Panel>
-          <Panel className="col-span-12 xl:col-span-6" title="Data quality & provenance" right={q && <Badge tone={m?.is_stale ? 'am' : 'up'}>{m?.is_stale ? 'Stale' : 'Up to date'}</Badge>}>
+          <Panel className="col-span-12 xl:col-span-6" title="Data quality & provenance" right={q && m?.quality_status && <Badge tone={QUALITY[m.quality_status].tone}>{QUALITY[m.quality_status].label}</Badge>}>
             {!q ? (quality.error ? <ErrorBox error={quality.error} /> : <Loading />) : (
               <>
                 <KeyValue rows={[
-                  ['Source', m?.provider === 'frankfurter' ? 'European Central Bank via Frankfurter' : m?.provider === 'coinbase' ? 'Coinbase Exchange (Kraken as backup)' : m?.provider ?? '—'],
+                  ['Type', isFx ? 'Daily ECB reference rates — not live forex quotes.' : 'Historical completed daily candles (UTC), not live'],
+                  ['Source', (m?.provider ? SOURCE[m.provider] ?? m.provider : '—') + (q.sources?.length > 1 ? ` (history also from ${q.sources.filter((x: string) => x !== m?.provider).map((x: string) => SOURCE[x] ?? x).join(', ')})` : '')],
                   ['History', `${shortDate(q.start)} ${q.start?.slice(0, 4)} – ${shortDate(q.end)} ${q.end?.slice(0, 4)} · ${q.rows.toLocaleString()} days`],
                   ['Completeness', <span className="inline-flex items-center gap-1.5">{pct(q.completeness, 1, false)}<InfoTip text={q.calendar_note} /></span>],
                   ['Fields', q.has_ohlc ? 'Open, high, low, close' + (q.has_volume ? ', volume' : '') : 'Close only (no high/low/volume)'],
-                  ['Last updated', `${num(q.stale_days, 1)} days ago`],
+                  ['Last bar', `${shortDate(q.end)} · ${num(q.stale_days, 1)} days ago${m?.is_stale ? ' (stale)' : ''}`],
+                  ...(isFx ? [] : [['Cross-check', crossText(m?.cross_source)] as [string, string]]),
+                  ['Excluded candles', <span className="inline-flex items-center gap-1.5">{q.normalization?.quarantined ?? 0}<InfoTip text="Candles that fail validation (bad timestamp, invalid prices, impossible high/low) are excluded and listed, never repaired." /></span>],
                   ['Dataset version', <span className="font-mono text-[12px]">{quality.data.version}</span>],
                 ]} />
+                {(m?.quality_issues?.length ?? 0) > 0 && (
+                  <ul className="mt-3 space-y-1.5 text-[12.5px] leading-snug text-ink-200">
+                    {m!.quality_issues.map((i) => <li key={i.code} className="flex gap-2"><StatusDot tone={i.level === 'fail' ? 'dn' : i.level === 'warn' ? 'am' : 'up'} /><span>{i.text}</span></li>)}
+                  </ul>
+                )}
                 <div className="mt-3"><Button small onClick={() => refresh.run()} disabled={refresh.pending}>{refresh.pending ? 'Refreshing…' : 'Refresh now'}</Button></div>
               </>
             )}
@@ -216,7 +245,7 @@ export function MarketsView({ go }: ViewProps) {
         {q && (
           <Disclosure title="Technical details" meta="Validation report">
             <div className="grid gap-4 sm:grid-cols-2">
-              <KeyValue rows={[['Missing periods', q.missing_periods], ['Gaps', q.gap_count], ['Outliers (|z| > 10)', q.outliers?.length ?? 0], ['Duplicates dropped', q.normalization?.duplicates_dropped ?? 0]]} />
+              <KeyValue rows={[['Missing periods', q.missing_periods], ['Gaps', q.gap_count], ['Outliers (|z| > 10)', q.outliers?.length ?? 0], ['Duplicates dropped', q.normalization?.duplicates_dropped ?? 0], ['Out-of-order rows', q.normalization?.out_of_order_rows ?? 0], ['Excluded (latest refresh)', q.normalization?.quarantined ?? 0], ['Excluded (all time)', quality.data.quarantine?.length ?? 0]]} />
               <div className="scroll-thin max-h-[180px] overflow-auto rounded-[12px] ring-1 ring-white/[0.05]">
                 <table className="data"><thead><tr><th>Version</th><th>Rows</th><th>Ends</th></tr></thead>
                   <tbody>{quality.data.versions.map((v: any) => <tr key={v.version + v.created_at}><td className="font-mono text-[12px]">{v.version}</td><td>{v.rows}</td><td>{v.end_ts}</td></tr>)}</tbody>

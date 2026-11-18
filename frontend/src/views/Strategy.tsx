@@ -40,7 +40,7 @@ export function StrategyView({ go }: ViewProps) {
     if (spec) setParams(Object.fromEntries(spec.params.map((p) => [p.name, p.default])))
   }, [spec])
 
-  const friction = scaledCosts(sym, costMult)
+  const friction = scaledCosts(markets.data?.find((x) => x.symbol === sym)?.costs, costMult)
   const bt = useAction(async () => {
     setEv(null)
     const r = await api.post<BacktestPayload>('/backtest', { symbol: sym, strategy: key, params, sizing, start: start || null, costs: costMult === 1 ? {} : friction, include_holdout: includeHoldout })
@@ -144,10 +144,9 @@ export function StrategyView({ go }: ViewProps) {
   )
 }
 
-// Mirrors backend/atlas/data/instruments.py defaults (display only — the backend is the source of truth).
-function scaledCosts(sym: string, mult: number) {
-  const fx = !sym.includes('BTC') && !sym.includes('ETH')
-  const base = fx ? { spread_bps: sym === 'EUR/USD' ? 1 : 1.5, fee_bps: 0, slippage_bps: 0.5 } : { spread_bps: 5, fee_bps: 10, slippage_bps: 5 }
+// Cost assumptions come from the backend instrument definition (backend/atlas/data/instruments.py).
+function scaledCosts(base: Market['costs'] | undefined, mult: number) {
+  if (!base) return {}
   return { spread_bps: base.spread_bps * mult, fee_bps: base.fee_bps * mult, slippage_bps: base.slippage_bps * mult }
 }
 

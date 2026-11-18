@@ -167,13 +167,13 @@ export function Landing() {
           <div className="panel px-7 py-7">
             <div className="flex items-center gap-2 text-[14px] font-medium text-up"><span className="h-2 w-2 rounded-full bg-up" />Available now</div>
             <ul className="mt-4 space-y-4">
-              <li><div className="text-[17px] font-semibold text-white">Crypto · BTC/USD, ETH/USD</div><div className="text-[14.5px] text-ink-300">Daily open, high, low, close and volume from Coinbase Exchange, with Kraken as backup.</div></li>
+              <li><div className="text-[17px] font-semibold text-white">Crypto · BTC/USD, ETH/USD</div><div className="text-[14.5px] text-ink-300">Historical daily candles (open, high, low, close, volume), cross-checked against a second exchange. Not live prices. Beta access depends on exchange data licensing, which is still being confirmed.</div></li>
               <li><div className="text-[17px] font-semibold text-white">Forex · EUR/USD, GBP/USD, USD/JPY</div><div className="text-[14.5px] text-ink-300">European Central Bank daily reference rates — one official close per business day, not an executable quote.</div></li>
             </ul>
           </div>
           <div className="panel px-7 py-7">
             <div className="flex items-center gap-2 text-[14px] font-medium text-ink-300"><span className="h-2 w-2 rounded-full bg-ink-400" />On the roadmap — not available</div>
-            <div className="mt-4 flex flex-wrap gap-2">{['Stocks', 'ETFs', 'Options', 'Futures', 'Intraday data'].map((x) => <span key={x} className="rounded-full bg-white/[0.05] px-3.5 py-1.5 text-[14px] text-ink-300 ring-1 ring-inset ring-white/[0.06]">{x}</span>)}</div>
+            <div className="mt-4 flex flex-wrap gap-2">{['Stocks', 'ETFs', 'Options', 'Futures', 'Live prices', 'Intraday research'].map((x) => <span key={x} className="rounded-full bg-white/[0.05] px-3.5 py-1.5 text-[14px] text-ink-300 ring-1 ring-inset ring-white/[0.06]">{x}</span>)}</div>
             <p className="mt-4 text-[14.5px] leading-relaxed text-ink-300">We won’t list a market until its data can be validated, versioned and reproduced to the same standard.</p>
           </div>
         </div>

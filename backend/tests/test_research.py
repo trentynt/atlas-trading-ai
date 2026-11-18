@@ -25,18 +25,19 @@ class AlwaysLong(Strategy):
 
 
 # ---------------- validation ----------------
-def test_normalize_dedup_invalid_open_period_and_ohlc_repair():
+def test_normalize_quarantines_instead_of_repairing():
     raw = pd.DataFrame({
         "ts": ["2024-01-01T05:00:00Z", "2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
         "open": [1, 1, 1, 1, 1], "high": [0.5, 1.2, 1.2, 1.2, 1.2], "low": [0.9, 0.9, 0.9, 0.9, 0.9],
         "close": [1.0, 1.1, -1, 1.05, 1.0], "volume": [1, 1, 1, -5, 1]})
     df, rep = normalize(raw, drop_open_period=True, now=pd.Timestamp("2024-01-04T12:00Z"))
-    assert rep["duplicates_dropped"] == 1 and rep["invalid_close_dropped"] == 1
+    assert rep["misaligned_quarantined"] == 1  # 05:00 UTC is not a daily candle start; not floored into one
+    assert rep["invalid_close_quarantined"] == 1
     assert rep["incomplete_period_dropped"] == 1  # 2024-01-04 still open at noon
     assert list(df.index.strftime("%Y-%m-%d")) == ["2024-01-01", "2024-01-03"]
-    assert df.loc["2024-01-01", "close"].item() == 1.1  # last duplicate wins
-    assert np.isnan(df.loc["2024-01-03", "volume"].item())  # negative volume nulled
-    assert (df["high"] >= df[["open", "close"]].max(axis=1)).all()
+    assert df.loc["2024-01-01", "close"].item() == 1.1
+    assert np.isnan(df.loc["2024-01-03", "volume"].item())  # negative volume nulled, price kept
+    assert rep["quarantined"] == 2 and len(rep["quarantine_sample"]) == 2
 
 
 def test_quality_report_detects_fx_gaps_and_version_changes():

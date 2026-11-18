@@ -34,7 +34,9 @@ class Services:
         db = Database(settings.db_path)
         bus = EventBus(db)
         data = DataService(db, bus, settings.snapshot_dir, settings.history_start, providers=providers,
-                           timeout=settings.http_timeout_s, min_interval_s=settings.provider_min_interval_s)
+                           timeout=settings.http_timeout_s, min_interval_s=settings.provider_min_interval_s,
+                           mode=settings.deployment_mode, cross_source_tolerance_bps=settings.cross_source_tolerance_bps,
+                           intraday_history_days=settings.intraday_history_days)
         risk = RiskManager(db, bus, data)
         paper = PaperBroker(db, bus, data, risk, settings.paper_initial_cash)
         jobs = JobManager(db, bus, settings.worker_threads, settings.max_job_runtime_s)

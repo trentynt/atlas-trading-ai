@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from datetime import datetime, timezone
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
@@ -13,7 +14,8 @@ from ..backtest.engine import CostModel, run_backtest
 from ..backtest.walkforward import full_evaluation, neighbours
 from ..config import code_version
 from ..data.instruments import INSTRUMENTS, get_instrument, unslug
-from ..data.service import DataUnavailable
+from ..data.licensing import describe as describe_licenses
+from ..data.service import FX_LABEL, INTRADAY, DataUnavailable, data_label
 from ..db import LOCAL_USER_ID, dumps, loads, utcnow
 from ..research.registry import METHODOLOGY
 from ..research.validation import DISPOSITION_LABEL, GATES_V2
@@ -138,20 +140,43 @@ def refresh(request: Request, body: S.RefreshRequest):
 def bars(request: Request, symbol: str, timeframe: str = "1d", limit: int = Query(2000, le=10000)):
     sv = svc(request)
     sym = _sym(symbol)
-    df = sv.data.load(sym, timeframe).iloc[-limit:]
+    inst = get_instrument(sym)
+    intraday = timeframe in INTRADAY
+    if intraday and inst.asset_class != "crypto":
+        raise HTTPException(400, "Intraday candles are available for crypto only. Forex uses daily ECB reference rates.")
+    try:
+        if intraday:
+            last = sv.db.one("SELECT MAX(ts) ts FROM bars WHERE symbol=? AND timeframe=?", (sym, timeframe))["ts"]
+            step = 3600 if timeframe == "1h" else 21600
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() if last else None
+            if age is None or age > 2 * step:
+                sv.data.refresh_intraday(sym, timeframe)
+        df = sv.data.load(sym, timeframe).iloc[-limit:]
+    except DataUnavailable as e:
+        raise HTTPException(409, str(e))
     ds = sv.data.latest_dataset(sym)
-    return {"symbol": sym, "timeframe": timeframe, "dataset": {k: ds[k] for k in ("version", "provider", "attribution", "has_ohlc", "has_volume")} if ds else None,
-            "bars": [{"t": t.date().isoformat(), "o": _n(r.open), "h": _n(r.high), "l": _n(r.low), "c": float(r.close), "v": _n(r.volume)}
-                     for t, r in df.iterrows()]}
+    label = data_label(inst, timeframe, sv.data.intraday_days.get(timeframe))
+    return {"symbol": sym, "timeframe": timeframe, **label,
+            "dataset": {k: ds[k] for k in ("version", "provider", "attribution", "has_ohlc", "has_volume")} if ds and not intraday else None,
+            "bars": [{"t": (t.isoformat() if intraday else t.date().isoformat()), "o": _n(r.open), "h": _n(r.high), "l": _n(r.low),
+                      "c": float(r.close), "v": _n(r.volume)} for t, r in df.iterrows()]}
 
 
 @router.get("/markets/{symbol}/quality")
 def quality(request: Request, symbol: str):
-    ds = svc(request).data.latest_dataset(_sym(symbol))
+    sv = svc(request)
+    ds = sv.data.latest_dataset(_sym(symbol))
     if not ds:
         raise HTTPException(404, "no dataset yet")
-    versions = svc(request).db.query("SELECT version, provider, rows, end_ts, created_at FROM datasets WHERE symbol=? ORDER BY id DESC LIMIT 30", (ds["symbol"],))
-    return {**ds, "versions": versions}
+    versions = sv.db.query("SELECT version, provider, rows, end_ts, quality_status, created_at FROM datasets WHERE symbol=? ORDER BY id DESC LIMIT 30", (ds["symbol"],))
+    return {**ds, "versions": versions, "quarantine": sv.data.quarantine(ds["symbol"], 50)}
+
+
+@router.get("/data/licensing")
+def licensing(request: Request):
+    sv = svc(request)
+    return {"deployment_mode": sv.data.mode, "sources": describe_licenses(sv.data.mode),
+            "fx_label": FX_LABEL, "doc": "docs/DATA_LICENSING.md"}
 
 
 @router.get("/markets/{symbol}/regime")

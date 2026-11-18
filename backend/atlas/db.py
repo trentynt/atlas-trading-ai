@@ -265,6 +265,16 @@ def _m1_users_trials_holdout(db: "Database") -> None:
         c.execute(f"CREATE INDEX IF NOT EXISTS ix_{t}_user ON {t}(user_id)")
 
 
+def _m2_data_quality(db: "Database") -> None:
+    """Quarantined candles (excluded, never repaired) and per-dataset quality grade."""
+    db._conn.execute("""CREATE TABLE IF NOT EXISTS data_quarantine (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, timeframe TEXT NOT NULL, ts TEXT,
+        provider TEXT NOT NULL, reason TEXT NOT NULL, row_json TEXT, created_at TEXT NOT NULL)""")
+    db._conn.execute("CREATE INDEX IF NOT EXISTS idx_quarantine_symbol ON data_quarantine(symbol, timeframe, created_at)")
+    db._add_column("datasets", "quality_status", "TEXT")
+
+
 MIGRATIONS = [
     (1, _m1_users_trials_holdout),
+    (2, _m2_data_quality),
 ]

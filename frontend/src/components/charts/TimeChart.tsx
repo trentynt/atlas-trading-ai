@@ -1,8 +1,10 @@
 import {
   AreaSeries, CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, createChart,
-  type IChartApi, type ISeriesApi, type SeriesType, type Time,
+  type IChartApi, type ISeriesApi, type SeriesType, type Time, type UTCTimestamp,
 } from 'lightweight-charts'
 import { useEffect, useRef, useState } from 'react'
+
+const toUtc = (t: string) => (Math.floor(Date.parse(t) / 1000) as UTCTimestamp)
 
 export type TSeries =
   | { kind: 'line'; id: string; label: string; color: string; data: { time: string; value: number }[]; dashed?: boolean; width?: number }
@@ -36,6 +38,8 @@ export function TimeChart({ series, height = 300, format = (v: number) => v.toFi
     })
     chartRef.current = chart
     const apis: { s: TSeries; api: ISeriesApi<SeriesType> }[] = []
+    const intraday = series.some((x) => x.data.some((d) => d.time.includes('T')))
+    if (intraday) chart.applyOptions({ timeScale: { timeVisible: true, secondsVisible: false } })
     for (const s of series) {
       let api: ISeriesApi<SeriesType>
       if (s.kind === 'line') {
@@ -48,7 +52,7 @@ export function TimeChart({ series, height = 300, format = (v: number) => v.toFi
       } else {
         api = chart.addSeries(CandlestickSeries, { upColor: '#3ddc97', downColor: '#ff5d5d', borderVisible: false, wickUpColor: '#3ddc9799', wickDownColor: '#ff5d5d99', priceLineVisible: false })
       }
-      api.setData(s.data as never)
+      api.setData((intraday ? s.data.map((d) => ({ ...d, time: toUtc(d.time) })) : s.data) as never)
       apis.push({ s, api })
     }
     chart.timeScale().fitContent()
@@ -65,7 +69,7 @@ export function TimeChart({ series, height = 300, format = (v: number) => v.toFi
         const color = s.kind === 'candle' ? '#d4dfe9' : s.color
         return [{ label: s.label, color, v: percent ? `${(v * 100).toFixed(2)}%` : format(v) }]
       })
-      setHover({ time: String(p.time as Time), vals })
+      setHover({ time: typeof p.time === 'number' ? `${new Date(p.time * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC` : String(p.time as Time), vals })
     })
     return () => {
       chart.remove()

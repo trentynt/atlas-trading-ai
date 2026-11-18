@@ -147,7 +147,7 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
 
       {/* markets */}
       <section>
-        <SectionTitle title="Your markets" action={['All markets', () => go('markets')]} note="Daily data. Forex prices are ECB reference rates, not live quotes." />
+        <SectionTitle title="Your markets" action={['All markets', () => go('markets')]} note="Crypto: historical daily candles, not live. Forex: Daily ECB reference rates — not live forex quotes." />
         <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
           {(markets.data ?? Array.from({ length: 5 }, () => null)).map((m, i) => m ? (
             <button key={m.symbol} onClick={() => go('markets', { sym: symToParam(m.symbol) })}

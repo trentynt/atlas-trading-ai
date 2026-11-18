@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from functools import lru_cache
+from typing import Literal
 from pathlib import Path
 
 from pydantic import Field
@@ -21,6 +22,15 @@ class Settings(BaseSettings):
 
     # Market data
     history_start: str = "2015-01-01"
+    # Extra liquid crypto to research besides BTC and ETH, e.g. "SOL,XRP" (see data/instruments.py LIQUID_CRYPTO)
+    crypto_assets: str = ""
+    # Historical intraday candles kept for charts (research itself runs on completed daily bars)
+    intraday_history_days: dict[str, int] = {"1h": 60, "6h": 365}
+    # "personal": all integrated sources usable for your own research.
+    # "beta": only sources whose licence was verified to allow showing data to other people (docs/DATA_LICENSING.md)
+    deployment_mode: Literal["personal", "beta"] = "personal"
+    # Cross-source check: flag days where primary and secondary closes differ by more than this
+    cross_source_tolerance_bps: float = 50.0
     http_timeout_s: float = 20.0
     provider_min_interval_s: float = 0.35  # simple client-side rate limit per provider
 

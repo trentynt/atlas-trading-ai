@@ -13,7 +13,7 @@ const HORIZONS = [{ value: '5', label: '1 week' }, { value: '20', label: '1 mont
 export function ForecastView({ go }: ViewProps) {
   const markets = useApi<Market[]>('/markets')
   const models = useApi<{ key: string; name: string; description: string }[]>('/forecast/models')
-  const [symP, setSymP] = useParam('sym', 'EUR-USD')
+  const [symP, setSymP] = useParam('sym', 'BTC-USD')
   const sym = paramToSym(symP)
   const [model, setModel] = useState('drift')
   const [h, setH] = useState('20')
