@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+backend/.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Runtime data (SQLite DB, dataset snapshots) — regenerated from providers
+data/
+
+# Editors / OS
+.DS_Store
+.vscode/
+
+# Marketing raw captures (WebM duplicates of the MP4s)
+marketing/recordings/raw/
+
+# Secrets and databases — never commit
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
