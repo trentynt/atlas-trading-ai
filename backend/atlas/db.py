@@ -314,6 +314,13 @@ def _m6_practice_journal(db: "Database") -> None:
         rating INTEGER, paper_trade_id INTEGER)""")
 
 
+def _m7_holdout_unlocks(db: "Database") -> None:
+    """Audit log: every time the sealed intraday holdout is read."""
+    db._conn.execute("""CREATE TABLE IF NOT EXISTS holdout_unlocks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, reason TEXT NOT NULL, purpose TEXT NOT NULL,
+        window TEXT NOT NULL)""")
+
+
 MIGRATIONS = [
     (1, _m1_users_trials_holdout),
     (2, _m2_data_quality),
@@ -321,4 +328,5 @@ MIGRATIONS = [
     (4, _m4_drop_waitlist),
     (5, _m5_minute_bars),
     (6, _m6_practice_journal),
+    (7, _m7_holdout_unlocks),
 ]

@@ -251,3 +251,12 @@ The fix, `backend/atlas/futures/calendar.py`:
   expected to be short.
 
 The lesson: a passing check is not proof. Numbers that don't fit together are worth chasing.
+
+## Sealed holdout (2026-11-20)
+Sessions **2026-02-20 → 2026-11-19** (the last ~9 months at sealing) are set aside in
+`backend/atlas/futures/holdout.py`. Replay, opening statistics and backtests can't see them unless you pass an explicit
+unlock reason. Every unlock is logged in `holdout_unlocks` (`GET /api/intraday/holdout`). The data gate is a logged reader too:
+it checks quality only and produces no results. Sessions after 2026-11-19 are never sealed.
+
+Why: once you've looked at a period while forming ideas, it can no longer test them honestly. Keep this one for a single
+final check of an idea designed on the open data.

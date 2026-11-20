@@ -87,7 +87,9 @@ def evaluate(minutes: pd.DataFrame, daily: pd.Series) -> dict:
 
 def run(db, symbol: str = PROXY_SYMBOL) -> dict:
     store = MinuteStore(db)
-    res = evaluate(store.load(symbol), store.load_daily(symbol))
+    # Data QUALITY checks may read the holdout; each run is logged as an unlock (no results are computed).
+    res = evaluate(store.load(symbol, unlock_reason="data-quality gate (pre-registered checks, no strategy results)",
+                              purpose="data_gate"), store.load_daily(symbol))
     res.update(symbol=symbol, proxy_for="MNQ", ran_at=utcnow())
     if res.get("checks"):  # an empty store is "not run", never recorded as a failure
         db.kv_set(f"data_gate:{symbol}", res)

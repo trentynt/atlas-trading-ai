@@ -6,7 +6,7 @@ import os
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from ..futures import apex
+from ..futures import apex, holdout
 from ..futures.minute_data import PROXY_SYMBOL, MinuteStore
 from ..futures.practice import DATA_NOTE, Journal, Practice, PracticeError
 from ..futures.proxy import PROXY_SCALE
@@ -41,7 +41,12 @@ def status(request: Request):
             "gate": gate if (gate := db.kv_get(f"data_gate:{PROXY_SYMBOL}")) and gate.get("checks") else None,
             "data_note": DATA_NOTE,
             "keys_present": {k: bool(os.environ.get(k)) for k in ("ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY", "TIINGO_API_KEY")},
-            "apex_rules_verified": apex_ok}
+            "apex_rules_verified": apex_ok, "holdout": holdout.info(db)}
+
+
+@router.get("/holdout")
+def holdout_status(request: Request):
+    return {**holdout.info(_db(request)), "log": holdout.unlocks(_db(request))}
 
 
 @router.get("/sessions")
@@ -50,8 +55,11 @@ def sessions(request: Request):
 
 
 @router.get("/stats")
-def stats(request: Request, or_minutes: int = Query(15, ge=1, le=120)):
-    df = MinuteStore(_db(request)).load(PROXY_SYMBOL)
+def stats(request: Request, or_minutes: int = Query(15, ge=1, le=120), unlock_reason: str | None = None):
+    try:
+        df = MinuteStore(_db(request)).load(PROXY_SYMBOL, unlock_reason=unlock_reason, purpose=f"opening stats ({or_minutes} min)")
+    except PermissionError as e:
+        raise HTTPException(400, str(e))
     if df.empty:
         raise HTTPException(409, "No minute data stored yet. Add the API keys and run the data gate with --download.")
     return describe(df, or_minutes)
@@ -65,12 +73,13 @@ class PracticeStart(BaseModel):
     daily_loss_limit: float | None = Field(None, gt=0)
     commission_per_side: float = Field(0.62, ge=0)
     slippage_ticks: float = Field(1.0, ge=0)
+    holdout_unlock_reason: str | None = None  # required only for sessions inside the sealed holdout; logged
 
 
 @router.post("/practice")
 def practice_start(request: Request, body: PracticeStart):
     return _guard(Practice(_db(request)).start, body.session_date, body.contracts, body.stop_ticks, body.target_ticks,
-                  body.daily_loss_limit, body.commission_per_side, body.slippage_ticks)
+                  body.daily_loss_limit, body.commission_per_side, body.slippage_ticks, 0, body.holdout_unlock_reason)
 
 
 @router.get("/practice/{pid}")

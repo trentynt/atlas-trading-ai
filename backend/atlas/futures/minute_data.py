@@ -24,6 +24,7 @@ import pandas as pd
 
 from ..db import Database, utcnow
 from .calendar import OPEN_MIN, close_minute
+from .holdout import HOLDOUT_END, HOLDOUT_START, log_unlock
 
 NY = ZoneInfo("America/New_York")
 PROXY_SYMBOL = "QQQ"
@@ -154,7 +155,9 @@ class MinuteStore:
                             [(symbol, d, float(c), source) for d, c in s.items()])
         return len(s)
 
-    def load(self, symbol: str, start: str | None = None, end: str | None = None, raw: bool = False) -> pd.DataFrame:
+    def load(self, symbol: str, start: str | None = None, end: str | None = None, raw: bool = False,
+             unlock_reason: str | None = None, purpose: str = "") -> pd.DataFrame:
+        """Sealed holdout sessions are excluded unless `unlock_reason` is given (the unlock is logged)."""
         q, a = "SELECT ts,open,high,low,close,volume FROM minute_bars WHERE symbol=?", [symbol]
         if start:
             q += " AND ts >= ?"; a.append(start)
@@ -164,7 +167,16 @@ class MinuteStore:
         df.index = pd.to_datetime(df.pop("ts"), utc=True, format="ISO8601")
         df = df.astype(float)
         # Re-apply the session calendar on read, so rows stored before a calendar fix are still filtered.
-        return complete_sessions(rth_only(df)) if raw is False else df
+        df = complete_sessions(rth_only(df)) if raw is False else df
+        if df.empty:
+            return df
+        days = pd.Index(df.index.tz_convert(NY).date.astype(str))
+        sealed = (days >= HOLDOUT_START) & (days <= HOLDOUT_END)
+        if sealed.any():
+            if unlock_reason is None:
+                return df[~sealed]
+            log_unlock(self.db, unlock_reason, purpose or f"load {symbol} {start or ''}..{end or ''}")
+        return df
 
     def load_daily(self, symbol: str, source: str = "tiingo") -> pd.Series:
         rows = self.db.query("SELECT date, close FROM reference_daily WHERE symbol=? AND source=? ORDER BY date", (symbol, source))

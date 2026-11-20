@@ -16,6 +16,7 @@ import pandas as pd
 from ..db import Database, dumps, loads, utcnow
 from .contracts import MNQ, FuturesCosts, round_turn
 from .engine import IntradayConfig, run_intraday
+from .holdout import HOLDOUT_END, HOLDOUT_START, in_holdout
 from .minute_data import NY, PROXY_SYMBOL, MinuteStore
 from .proxy import PROXY_SCALE, to_index_points
 
@@ -36,9 +37,10 @@ class Practice:
         self.db = db
         self.loader = loader or self._load
 
-    def _load(self, date: str) -> pd.DataFrame:
+    def _load(self, date: str, unlock_reason: str | None = None) -> pd.DataFrame:
         a, b = session_bounds(date)
-        return to_index_points(MinuteStore(self.db).load(PROXY_SYMBOL, a, b))
+        return to_index_points(MinuteStore(self.db).load(PROXY_SYMBOL, a, b, unlock_reason=unlock_reason,
+                                                         purpose=f"practice {date}"))
 
     def sessions(self) -> list[str]:
         return MinuteStore(self.db).sessions(PROXY_SYMBOL)
@@ -46,15 +48,19 @@ class Practice:
     # ---------- lifecycle ----------
     def start(self, date: str, contracts: int = 1, stop_ticks: float | None = None, target_ticks: float | None = None,
               daily_loss_limit: float | None = None, commission_per_side: float = 0.62, slippage_ticks: float = 1.0,
-              start_bar: int = 0) -> dict:
-        bars = self.loader(date)
+              start_bar: int = 0, unlock_reason: str | None = None) -> dict:
+        if in_holdout(date) and not unlock_reason:
+            raise PracticeError(f"{date} is in the sealed holdout ({HOLDOUT_START} to {HOLDOUT_END}). "
+                                "Unlock it explicitly with a reason to practise on it; the unlock is logged.")
+        bars = self._bars(date, unlock_reason)
         if len(bars) < 30:
             raise PracticeError(f"No usable session stored for {date}.")
         cfg = IntradayConfig(contracts=contracts, stop_ticks=stop_ticks, target_ticks=target_ticks,
                              daily_loss_limit=daily_loss_limit, costs=FuturesCosts(commission_per_side, slippage_ticks))
         pid = self.db.insert("practice_sessions", {
             "created_at": utcnow(), "session_date": date, "symbol": PROXY_SYMBOL, "status": "active",
-            "config_json": dumps({**cfg.to_dict(), "costs": vars(cfg.costs)}), "decisions_json": "[]",
+            "config_json": dumps({**cfg.to_dict(), "costs": vars(cfg.costs), "holdout_unlock": unlock_reason}),
+            "decisions_json": "[]",
             "cursor": max(0, min(start_bar, len(bars) - 2))})
         return self.view(pid)
 
@@ -63,8 +69,13 @@ class Practice:
         if not row:
             raise PracticeError("practice session not found")
         c = loads(row["config_json"], {})
+        unlock = c.pop("holdout_unlock", None)
         cfg = IntradayConfig(**{**c, "costs": FuturesCosts(**c["costs"])})
-        return row, cfg, loads(row["decisions_json"], []), self.loader(row["session_date"])
+        return row, cfg, loads(row["decisions_json"], []), self._bars(row["session_date"], unlock)
+
+    def _bars(self, date: str, unlock_reason: str | None) -> pd.DataFrame:
+        """Each read of a sealed session is a logged unlock."""
+        return self.loader(date, unlock_reason) if unlock_reason else self.loader(date)
 
     @staticmethod
     def _signals(bars: pd.DataFrame, decisions: list) -> pd.Series:
