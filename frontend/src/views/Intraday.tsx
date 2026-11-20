@@ -4,11 +4,12 @@ import { TimeChart, type TSeries } from '../components/charts/TimeChart'
 import { Badge, Button, EmptyState, ErrorBox, Field, KeyValue, Loading, Notice, PageHeader, Panel, StatusDot, Tabs } from '../components/ui'
 import { api, useAction, useApi } from '../lib/api'
 import { num } from '../lib/format'
+import { ExperimentsTab } from './IntradayExperiments'
 
 /** Dollars with cents: futures P&L is exact to the cent. */
 const money = (v: number | null | undefined) => (v == null ? '—' : `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed(2)}`)
 
-type Tab = 'practice' | 'stats' | 'journal' | 'data'
+type Tab = 'experiments' | 'practice' | 'stats' | 'journal' | 'data'
 
 interface Status {
   bars: number; first: string | null; last: string | null; proxy_scale: number; data_note: string
@@ -26,14 +27,15 @@ interface PracticeView {
 const hhmm = (iso: string) => iso.slice(11, 16)
 
 export function IntradayView(_: ViewProps) {
-  const [tab, setTab] = useState<Tab>('practice')
+  const [tab, setTab] = useState<Tab>('experiments')
   const status = useApi<Status>('/intraday/status')
   return (
     <div className="space-y-5">
       <PageHeader eyebrow="Intraday · MNQ" title="Learn the session"
         subtitle="Replay past sessions bar by bar, practise with paper trades, study how the open behaves, and keep a journal. Paper only: nothing here can place a real order." />
       <Notice tone="am" title="Proxy data">{status.data?.data_note ?? 'Historical QQQ 1-minute bars used as a proxy for MNQ.'}</Notice>
-      <Tabs value={tab} onChange={setTab} options={[{ value: 'practice', label: 'Replay & practice' }, { value: 'stats', label: 'Opening statistics' }, { value: 'journal', label: 'Journal' }, { value: 'data', label: 'Data & gate' }]} />
+      <Tabs value={tab} onChange={setTab} options={[{ value: 'experiments', label: 'Experiments' }, { value: 'practice', label: 'Replay & practice' }, { value: 'stats', label: 'Opening statistics' }, { value: 'journal', label: 'Journal' }, { value: 'data', label: 'Data & gate' }]} />
+      {tab === 'experiments' && <ExperimentsTab />}
       {tab === 'practice' && <PracticeTab />}
       {tab === 'stats' && <StatsTab />}
       {tab === 'journal' && <JournalTab />}

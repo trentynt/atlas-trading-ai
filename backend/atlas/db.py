@@ -321,6 +321,26 @@ def _m7_holdout_unlocks(db: "Database") -> None:
         window TEXT NOT NULL)""")
 
 
+def _m8_intraday_experiments(db: "Database") -> None:
+    """Pre-registered intraday experiments (locked once registered) and their runs."""
+    c = db._conn
+    c.execute("""CREATE TABLE IF NOT EXISTS intraday_experiments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, rationale TEXT NOT NULL, spec_json TEXT NOT NULL,
+        gates_json TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('draft','registered')), spec_hash TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, registered_at TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS intraday_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, experiment_id INTEGER NOT NULL REFERENCES intraday_experiments(id),
+        ran_at TEXT NOT NULL, sessions INTEGER, trades INTEGER, net_pnl REAL, passed INTEGER, trial_id INTEGER,
+        result_json TEXT NOT NULL)""")
+    # Second lock, in the database itself: a registered experiment can never be changed or deleted.
+    c.execute("""CREATE TRIGGER IF NOT EXISTS lock_registered_experiment BEFORE UPDATE ON intraday_experiments
+        WHEN OLD.status = 'registered'
+        BEGIN SELECT RAISE(ABORT, 'registered experiments are locked'); END""")
+    c.execute("""CREATE TRIGGER IF NOT EXISTS keep_registered_experiment BEFORE DELETE ON intraday_experiments
+        WHEN OLD.status = 'registered'
+        BEGIN SELECT RAISE(ABORT, 'registered experiments are permanent'); END""")
+
+
 MIGRATIONS = [
     (1, _m1_users_trials_holdout),
     (2, _m2_data_quality),
@@ -329,4 +349,5 @@ MIGRATIONS = [
     (5, _m5_minute_bars),
     (6, _m6_practice_journal),
     (7, _m7_holdout_unlocks),
+    (8, _m8_intraday_experiments),
 ]

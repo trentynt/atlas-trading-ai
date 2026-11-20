@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..futures import apex, holdout
+from ..futures.experiments import Experiments, LockedError
 from ..futures.minute_data import PROXY_SYMBOL, MinuteStore
 from ..futures.practice import DATA_NOTE, Journal, Practice, PracticeError
 from ..futures.proxy import PROXY_SCALE
@@ -105,6 +106,67 @@ def practice_finish(request: Request, pid: int):
 @router.get("/paper-trades")
 def paper_trades(request: Request):
     return Practice(_db(request)).paper_trades()
+
+
+# ---------------- experiments (pre-registered, locked, in-sample only) ----------------
+def _ex(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except LockedError as e:
+        raise HTTPException(409, str(e))
+    except KeyError as e:
+        raise HTTPException(404, str(e).strip("'"))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+class ExperimentBody(BaseModel):
+    name: str
+    rationale: str
+    spec: dict
+    gates: dict | None = None
+
+
+@router.get("/experiments")
+def experiments(request: Request):
+    ex = Experiments(_db(request))
+    return {"experiments": ex.list(), "trials": ex.trial_counts()}
+
+
+@router.post("/experiments")
+def experiment_create(request: Request, body: ExperimentBody):
+    return _ex(Experiments(_db(request)).create, body.name, body.rationale, body.spec, body.gates)
+
+
+@router.put("/experiments/{eid}")
+def experiment_update(request: Request, eid: int, body: ExperimentBody):
+    return _ex(Experiments(_db(request)).update, eid, body.name, body.rationale, body.spec, body.gates)
+
+
+@router.delete("/experiments/{eid}")
+def experiment_delete(request: Request, eid: int):
+    _ex(Experiments(_db(request)).delete_draft, eid)
+    return {"deleted": eid}
+
+
+@router.post("/experiments/{eid}/register")
+def experiment_register(request: Request, eid: int):
+    return _ex(Experiments(_db(request)).register, eid)
+
+
+@router.get("/experiments/{eid}")
+def experiment_get(request: Request, eid: int):
+    return _ex(Experiments(_db(request)).get, eid)
+
+
+@router.post("/experiments/{eid}/run")
+def experiment_run(request: Request, eid: int):
+    return _ex(Experiments(_db(request)).run, eid)
+
+
+@router.get("/runs/{rid}")
+def run_get(request: Request, rid: int):
+    return _ex(Experiments(_db(request)).get_run, rid)
 
 
 @router.get("/journal")

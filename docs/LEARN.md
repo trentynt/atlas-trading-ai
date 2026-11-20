@@ -260,3 +260,55 @@ it checks quality only and produces no results. Sessions after 2026-11-19 are ne
 
 Why: once you've looked at a period while forming ideas, it can no longer test them honestly. Keep this one for a single
 final check of an idea designed on the open data.
+
+## The experiment builder (Trading → Intraday (MNQ) → Experiments)
+
+### Why pre-register
+If you look at results and then tweak the rules, you are fitting noise. Pre-registration means you write
+down the rule, the reason it should work, and the pass marks **before** seeing any result. Clicking
+**Register** locks all three. The app refuses edits and deletes, and so does the database (a trigger).
+Changing anything means creating a new experiment, which counts as another tested idea.
+
+### The blocks, exactly as simulated (`backend/atlas/futures/experiments.py`)
+- **Opening range (OR):** high and low of the first N minutes (1–60).
+- **Entry.** Every entry fills at the next bar's open, with slippage.
+  - **Breakout:** the first bar after the OR that *closes* beyond the OR high or low. A close is used,
+    not a touch, so the decision only uses finished bars.
+  - **First bar's direction:** 09:30 bar up → long, down → short, unchanged → no trade. It is decided
+    when the OR is complete, so the OR stop is known.
+- **Stop:** the opposite end of the OR, N ticks from the fill, or N × ATR. ATR is the average daily range
+  of the 14 previous sessions, without the current day. If the fill is already beyond the stop, there is
+  no trade: there is no valid risk to take.
+- **Exit:** session close, a target in R, or a clock time.
+  - R = entry − stop, the risk per contract; a 2R target makes twice what the stop would lose.
+  - Target and clock exits fall back to the session close if not reached.
+- **Same rules as the backtester:** stop assumed first if a bar touches both, gaps fill at the open,
+  one trade a day, no entries after 15:50 (12:50 on early-close days).
+- **Filters:** weekday, |gap| in bps, prior-day range in bps. If a value is unknown (the first session,
+  or just after a break in the data), the day is skipped rather than guessed.
+
+### The gates (defaults)
+1. **Net expectancy > $0:** the average trade after all costs.
+2. **Bootstrap p < 0.05:** shuffle-style test. Remove the average from the trades (a world with no edge),
+   resample 10,000 times, and count how often luck alone reaches the observed average.
+3. **Positive without the 5 best days:** a result carried by a handful of lucky days is fragile.
+4. **Positive at 2× slippage:** real fills are often worse than assumed.
+
+### Every run is a trial
+Each run is recorded in the trial registry as a fully independent attempt (the strict choice). It feeds
+the deflated Sharpe check per market (MNQ) and across all markets. The banner's count includes the
+earlier daily crypto/forex research, because the global count is the strict one.
+
+The deflated Sharpe is shown with every result as information; it is not one of the four gates.
+Re-running the same experiment on the same data is also counted, so run deliberately.
+
+### What a run can see
+Only the open data. The builder has no way to pass a holdout unlock (a test checks the source), and a
+test proves no sealed session appears in a run.
+
+### ORB-1
+Pre-registered and **not run**:
+- 5-minute OR, first bar's direction, stop at the opposite end of the OR, exit at the session close.
+- 1 MNQ, $0.62/side plus 1 tick/side, default gates.
+- Its one-sentence rationale was written by the assistant as a placeholder hypothesis, because
+  registration requires one.

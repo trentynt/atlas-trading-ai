@@ -26,6 +26,8 @@ def create_app(settings: Settings | None = None, providers: dict | None = None, 
         sv = Services.build(settings, providers)
         sv.bus.bind_loop(asyncio.get_running_loop())
         app.state.services = sv
+        from .futures.experiments import ensure_seed
+        ensure_seed(sv.db)  # ORB-1, registered but never run automatically
         sv.bus.emit("system", "ATLAS backend started (PAPER ONLY — no live broker connectivity)", source="system", data={"node": "scheduler"})
         if start_background:
             sv.scheduler.start()
