@@ -221,3 +221,33 @@ Log every practice trade: date, side, contracts, times and prices, the setup you
 the lesson and a 1–5 rating. Net P&L is computed with the same MNQ cost model, e.g. 2 contracts long
 18,000 → 18,010 = **$35.52**. Entries without prices (e.g. "no trade: choppy open") are allowed. Days
 you chose not to trade are worth recording too.
+
+## Data gate result (2026-11-20)
+
+The first real run, on QQQ 1-minute bars from Alpaca and daily closes from Tiingo, **passed**:
+
+| Check | Result | Pass mark |
+|---|---|---|
+| G1 history | 3.49 years (2023-05-23 → 2026-11-19) | ≥ 3 |
+| G2 completeness | median session has 390 of 390 bars | ≥ 380 |
+| G3 correctness | 99.2% of days within 10 bps; median gap 0.70 bps, 95th percentile 3.2 bps | ≥ 95% |
+| G4 open and close bars | 100% of days | ≥ 95% |
+
+### A bug the gate did not catch, found by looking at the numbers
+The first run also passed, but 8 sessions had fewer than 380 bars while only 1 lacked a 15:59 bar. That
+doesn't add up: a half-day (13:00 close) shouldn't have a 15:59 bar at all. Those afternoon bars were
+**after-hours trades**, and the time filter had counted them as regular hours. The engine would have
+traded thin after-hours prices, and the statistics would have used a 15:59 after-hours price as the close.
+
+The fix, `backend/atlas/futures/calendar.py`:
+- **Early-close calendar.** 2026–2028 dates are VERIFIED from the NYSE hours page (read 2026-11-20).
+  2023–2025 dates are INFERENCE: the same NYSE rules, corroborated by the data. Every one of those days
+  is truncated after 13:00, while normal sessions are complete.
+- **Applied on read.** On early-close days the session ends at 12:59, the backtester stops new entries at
+  12:50 and goes flat on the 12:59 bar, and the gate uses 12:59 as the last bar.
+- **Incomplete sessions are excluded on read:** today's unfinished session, and the first stored day
+  (the download began mid-afternoon). Nothing is deleted from the database.
+- **The thresholds were not changed.** G2 now measures full-length sessions only; early-close days are
+  expected to be short.
+
+The lesson: a passing check is not proof. Numbers that don't fit together are worth chasing.

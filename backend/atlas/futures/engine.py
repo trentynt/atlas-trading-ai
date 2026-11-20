@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from .contracts import MNQ, FuturesContract, FuturesCosts, fill_price, whole_contracts
+from .calendar import EARLY_CLOSES
 from .minute_data import NY
 
 SESSIONS_PER_YEAR = 252
@@ -79,6 +80,10 @@ def run_intraday(df: pd.DataFrame, signals: pd.Series, cfg: IntradayConfig,
     hm = np.asarray(local.strftime("%H:%M"))
     n = len(df)
     last_of_day = np.r_[day[1:] != day[:-1], not open_end]
+    # Entry cutoff: `last_entry` normally; on 13:00 early-close days the same distance before that close.
+    lh, lm = map(int, cfg.last_entry.split(":"))
+    early_cut = f"{(lh * 60 + lm - 180) // 60:02d}:{(lh * 60 + lm - 180) % 60:02d}"
+    cutoff = np.where(pd.Index(day).isin(list(EARLY_CLOSES)), early_cut, cfg.last_entry)
     tick, mult, costs = contract.tick_size, contract.multiplier, cfg.costs
 
     pos = 0  # signed contracts
@@ -177,7 +182,7 @@ def run_intraday(df: pd.DataFrame, signals: pd.Series, cfg: IntradayConfig,
         want = direction * cfg.contracts
         if locked:
             want = 0  # after the daily loss limit: flat for the rest of the session
-        elif hm[i] >= cfg.last_entry and want != pos:
+        elif hm[i] >= cutoff[i] and want != pos:
             want = 0  # late in the session: exits allowed, no new or reversed positions
         if want != pos:
             pending = (want, "signal")

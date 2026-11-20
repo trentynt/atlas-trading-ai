@@ -23,6 +23,7 @@ import httpx
 import pandas as pd
 
 from ..db import Database, utcnow
+from .calendar import OPEN_MIN, close_minute
 
 NY = ZoneInfo("America/New_York")
 PROXY_SYMBOL = "QQQ"
@@ -42,13 +43,34 @@ def _env(name: str) -> str:
 
 
 def rth_only(df: pd.DataFrame) -> pd.DataFrame:
-    """Keep bars whose START is 09:30–15:59 New York time on weekdays."""
+    """Keep bars whose START falls inside the regular session (New York time, weekdays):
+    09:30–15:59 normally, 09:30–12:59 on early-close days (see calendar.py). Bars after an early
+    close are thin after-hours trades, not part of the session."""
     if df.empty:
         return df
     local = df.index.tz_convert(NY)
     mins = local.hour * 60 + local.minute
-    keep = (mins >= 9 * 60 + 30) & (mins <= 15 * 60 + 59) & (local.weekday < 5)
+    close = pd.Index(local.date.astype(str)).map(close_minute).to_numpy()
+    keep = (mins >= OPEN_MIN) & (mins < close) & (local.weekday < 5)
     return df[keep]
+
+
+def complete_sessions(df: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
+    """Drop sessions that are not whole: one still in progress, or one cut off at the start of the stored
+    history (no 09:30 bar on the first stored day). Nothing is deleted from the database."""
+    if df.empty:
+        return df
+    local = df.index.tz_convert(NY)
+    day = pd.Index(local.date.astype(str))
+    drop = set()
+    first = day[0]
+    if local[0].strftime("%H:%M") != "09:30":
+        drop.add(first)
+    now_ny = pd.Timestamp(now or datetime.now(timezone.utc)).tz_convert(NY)
+    today = now_ny.date().isoformat()
+    if day[-1] == today and now_ny.hour * 60 + now_ny.minute < close_minute(today) + 20:
+        drop.add(today)
+    return df[~day.isin(list(drop))] if drop else df
 
 
 class AlpacaMinuteBars:
@@ -132,7 +154,7 @@ class MinuteStore:
                             [(symbol, d, float(c), source) for d, c in s.items()])
         return len(s)
 
-    def load(self, symbol: str, start: str | None = None, end: str | None = None) -> pd.DataFrame:
+    def load(self, symbol: str, start: str | None = None, end: str | None = None, raw: bool = False) -> pd.DataFrame:
         q, a = "SELECT ts,open,high,low,close,volume FROM minute_bars WHERE symbol=?", [symbol]
         if start:
             q += " AND ts >= ?"; a.append(start)
@@ -140,7 +162,9 @@ class MinuteStore:
             q += " AND ts < ?"; a.append(end)
         df = pd.DataFrame(self.db.query(q + " ORDER BY ts", tuple(a)), columns=["ts", "open", "high", "low", "close", "volume"])
         df.index = pd.to_datetime(df.pop("ts"), utc=True, format="ISO8601")
-        return df.astype(float)
+        df = df.astype(float)
+        # Re-apply the session calendar on read, so rows stored before a calendar fix are still filtered.
+        return complete_sessions(rth_only(df)) if raw is False else df
 
     def load_daily(self, symbol: str, source: str = "tiingo") -> pd.Series:
         rows = self.db.query("SELECT date, close FROM reference_daily WHERE symbol=? AND source=? ORDER BY date", (symbol, source))

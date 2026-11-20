@@ -3,13 +3,14 @@ Do not change them after looking at results (docs/LEARN.md explains why).
 
 G1  history          >= 3 years between the first and last session with minute data
 G2  completeness     median RTH session has >= 380 of 390 one-minute bars
-G3  correctness      daily close rebuilt from minute bars (close of the 15:59 bar) is within 10 bps of an
+G3  correctness      daily close rebuilt from minute bars (close of the session's last bar: 15:59, or 12:59 on
+                     early-close days) is within 10 bps of an
                      independent daily close on >= 95% of days
-G4  session edges    the 09:30 and the 15:59 bars are both present on >= 95% of days
+G4  session edges    the 09:30 bar and the session's last bar are both present on >= 95% of days
 
 Session days come from the INDEPENDENT daily source, so a day with no minute data at all counts as a
-failure instead of being silently skipped. Half-day sessions (13:00 close) legitimately lack the 15:59 bar;
-they are few enough (about 3 a year) not to matter at the 95% level, and are reported.
+failure instead of being silently skipped. Early-close days (13:00) use 12:59 as the last bar (calendar.py)
+and are left out of G2's median, which measures full 390-minute sessions. Thresholds are unchanged.
 
 Run:  python -m atlas.futures.gate            (uses stored data)
       python -m atlas.futures.gate --download (fetch/update first; needs API keys)
@@ -25,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from ..db import utcnow
+from .calendar import EARLY_CLOSES, last_bar
 from .minute_data import NY, PROXY_SYMBOL, MinuteStore
 
 THRESHOLDS = MappingProxyType({
@@ -48,15 +50,18 @@ def evaluate(minutes: pd.DataFrame, daily: pd.Series) -> dict:
     first_m, last_m = day.min(), day.max()
     sessions = [d for d in daily.index if first_m <= d <= last_m]  # independent calendar within the minute span
     counts = pd.Series(1, index=day).groupby(level=0).sum().reindex(sessions, fill_value=0)
+    full_days = [d for d in sessions if d not in EARLY_CLOSES]  # G2 measures full-length sessions
     has_open = pd.Series(hm == "09:30", index=day).groupby(level=0).any().reindex(sessions, fill_value=False)
-    has_last = pd.Series(hm == "15:59", index=day).groupby(level=0).any().reindex(sessions, fill_value=False)
-    last_close = pd.Series(minutes["close"].to_numpy(), index=day)[hm == "15:59"].groupby(level=0).last()
+    expected_last = np.array([last_bar(d) for d in day])  # 15:59, or 12:59 on early-close days
+    is_last = hm == expected_last
+    has_last = pd.Series(is_last, index=day).groupby(level=0).any().reindex(sessions, fill_value=False)
+    last_close = pd.Series(minutes["close"].to_numpy(), index=day)[is_last].groupby(level=0).last()
     ref = daily.reindex(sessions)
     both = last_close.index.intersection(ref.dropna().index)
     diff_bps = ((last_close[both] / ref[both]) - 1).abs() * 1e4
 
     years = (pd.Timestamp(last_m) - pd.Timestamp(first_m)).days / 365.25
-    med = float(counts.median())
+    med = float(counts[full_days].median()) if full_days else 0.0
     g3_share = float((diff_bps <= T["G3_max_bps"]).sum() / len(sessions)) if sessions else 0.0  # missing days count as misses
     edges = has_open & has_last
     g4_share = float(edges.mean()) if len(edges) else 0.0
@@ -70,11 +75,11 @@ def evaluate(minutes: pd.DataFrame, daily: pd.Series) -> dict:
                "passed": g3_share >= T["G3_min_share"],
                "detail": f"median gap {float(diff_bps.median()) if len(diff_bps) else float('nan'):.2f} bps; "
                          f"p95 {float(diff_bps.quantile(0.95)) if len(diff_bps) else float('nan'):.2f} bps; "
-                         f"{len(sessions) - len(both)} day(s) without a 15:59 bar or reference close",
+                         f"{len(sessions) - len(both)} day(s) without a last bar or reference close",
                "worst_days": [{"date": d, "bps": round(float(v), 1)} for d, v in diff_bps.sort_values().tail(10).items()]},
         "G4": {"value": round(g4_share, 4), "threshold": f">= {T['G4_min_share']:.0%} of days with 09:30 and 15:59 bars",
                "passed": g4_share >= T["G4_min_share"],
-               "detail": f"missing 09:30 on {int((~has_open).sum())} day(s), 15:59 on {int((~has_last).sum())} (half days included)"},
+               "detail": f"missing 09:30 on {int((~has_open).sum())} day(s), last bar on {int((~has_last).sum())}; {sum(d in EARLY_CLOSES for d in sessions)} early-close day(s) end at 12:59"},
     }
     return {"passed": all(c["passed"] for c in checks.values()), "sessions": len(sessions),
             "checks": checks, "thresholds": dict(T), "thresholds_written": WRITTEN}

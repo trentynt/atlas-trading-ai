@@ -154,3 +154,12 @@ def test_apex_rules_refuse_until_verified():
     assert r["verified"] is False and "daily_loss_limit" not in r  # nothing guessed
     with pytest.raises(apex.UnverifiedRules):
         apex.load()
+
+
+def test_early_close_day_cutoff_and_flatten():
+    # 2025-11-28 closes at 13:00: no entries from 12:50, flat on the 12:59 bar
+    df = bars([(18000, 18001, 17999, 18000)] * 15, day="2025-11-28", start="12:45")
+    r = run_intraday(df, sig_at(df, [(6, 1)]), IntradayConfig(costs=ZERO))  # decided 12:51
+    assert r.trades == []
+    r = run_intraday(df, sig_at(df, [(2, 1)]), IntradayConfig(costs=ZERO))  # decided 12:47, fills 12:48
+    assert r.trades[0]["exit_reason"] == "session_close" and r.trades[0]["exit_ts"][11:16] == "12:59"

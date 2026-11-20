@@ -10,6 +10,7 @@ import pytest
 
 from atlas.db import Database
 from atlas.futures import gate as G
+from atlas.futures.calendar import EARLY_CLOSES
 from atlas.futures.minute_data import NY, AlpacaMinuteBars, MinuteStore, MissingKey, TiingoDaily, rth_only
 
 
@@ -19,8 +20,9 @@ def session_minutes(days: pd.DatetimeIndex, drop: dict | None = None, price0: fl
     out, daily = [], {}
     px = price0
     for d in days:
-        ts = pd.date_range(pd.Timestamp(d.date().isoformat() + " 09:30", tz=NY), periods=390, freq="min")
-        r = rng.normal(0, 0.0004, 390)
+        n = 210 if d.date().isoformat() in EARLY_CLOSES else 390  # early-close days end at 12:59
+        ts = pd.date_range(pd.Timestamp(d.date().isoformat() + " 09:30", tz=NY), periods=n, freq="min")
+        r = rng.normal(0, 0.0004, n)
         c = px * np.exp(np.cumsum(r))
         df = pd.DataFrame({"open": np.r_[px, c[:-1]], "close": c}, index=ts.tz_convert("UTC"))
         df["high"] = df[["open", "close"]].max(axis=1) * 1.0002
@@ -136,3 +138,39 @@ def test_store_roundtrip_and_gate_run(tmp_path):
     assert len(st.load("QQQ")) == len(m)
     r = G.run(db)
     assert r["passed"] and db.kv_get("data_gate:QQQ")["passed"]
+
+
+def test_early_close_days_drop_after_hours_bars():
+    # 2025-11-28 closed at 13:00 New York: bars from 13:00 on are after-hours, not the session
+    ts = pd.date_range(pd.Timestamp("2025-11-28 09:30", tz=NY), periods=390, freq="min").tz_convert("UTC")
+    df = pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0}, index=ts)
+    kept = rth_only(df)
+    assert len(kept) == 210 and kept.index[-1].tz_convert(NY).strftime("%H:%M") == "12:59"
+
+
+def test_incomplete_sessions_are_excluded_on_load():
+    from atlas.futures.minute_data import complete_sessions
+    m, _ = session_minutes(pd.bdate_range("2025-03-03", periods=3))
+    cut_first = m.iloc[200:]  # history starting mid-session
+    assert len(complete_sessions(cut_first, now=pd.Timestamp("2026-01-01", tz="UTC"))) == 780
+    today_partial = m.iloc[:900]  # third session only 120 bars in, and "now" is during that session
+    now = m.index[899] + pd.Timedelta(minutes=1)
+    assert len(complete_sessions(today_partial, now=now)) == 780
+
+
+def test_gate_uses_1259_as_last_bar_on_early_close_days():
+    days = bdays()
+    m, d = session_minutes(days)
+    assert G.evaluate(m, d)["passed"]
+    from atlas.futures import calendar as cal
+    day = days[100].date().isoformat()
+    cal.EARLY_CLOSES[day] = "TEST"
+    try:
+        loc = m.index.tz_convert(NY)
+        short = m[~((loc.date.astype(str) == day) & (loc.strftime("%H:%M") >= "13:00"))]
+        d2 = d.copy()
+        d2[day] = float(short[short.index.tz_convert(NY).date.astype(str) == day]["close"].iloc[-1])
+        r = G.evaluate(short, d2)
+        assert r["passed"] and r["checks"]["G4"]["value"] == 1.0 and r["checks"]["G3"]["value"] == 1.0
+    finally:
+        del cal.EARLY_CLOSES[day]
