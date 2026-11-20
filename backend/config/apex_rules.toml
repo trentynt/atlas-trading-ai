@@ -1,0 +1,21 @@
+# Apex Trader Funding account rules — VERIFY on apextraderfunding.com
+#
+# NOTHING BELOW IS FILLED IN ON PURPOSE. These rules change between account types and over time, and
+# ATLAS will not guess them. Open apextraderfunding.com (rules / FAQ for YOUR account type), copy each
+# value, and record where and when you read it. Until `verified = true`, ATLAS refuses to use this file.
+#
+# Use `inf` only for "no such rule". Money values are in US dollars.
+
+verified = false
+verified_on = ""          # e.g. "2026-12-01"
+source_url = ""           # the exact page you copied the rules from
+account_type = ""         # e.g. the plan name / size shown on the site
+
+# account_size = 0.0                  # starting balance of the evaluation / funded account
+# trailing_drawdown = 0.0             # maximum drawdown allowed, in $, and how it trails (see below)
+# trailing_drawdown_mode = ""         # e.g. "intraday-trailing" or "end-of-day" — VERIFY which one applies
+# daily_loss_limit = 0.0              # per-session loss limit in $, if your account has one
+# max_contracts_mnq = 0               # maximum MNQ contracts allowed for this account size
+# profit_target = 0.0                 # evaluation profit target, if applicable
+# must_be_flat_by = ""                # New York time all positions must be closed, e.g. "16:59"
+# consistency_rule = ""               # describe in words exactly as written on the site

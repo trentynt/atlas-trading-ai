@@ -126,3 +126,44 @@ Both are free accounts you create yourself:
    cd backend && set -a && . ./.env && set +a && ../.venv/bin/python -m atlas.futures.gate --download
    ```
    Exit code 0 means passed, 1 failed, 2 not run (missing keys or no data).
+
+## Phase 3: the intraday backtester
+
+Code: `backend/atlas/futures/engine.py`; tests: `backend/tests/test_intraday_engine.py`.
+
+### Rules the engine enforces, and why
+- **Decide on the close, act on the next open.** A signal computed at the close of the 10:15 bar fills at
+  the open of the 10:16 bar. Filling at the close you used to decide would assume you can trade at a
+  price you only learned after it happened.
+- **Stops and targets are set in ticks** from your actual fill. If one bar touches both, the engine assumes
+  the **stop** happened first. A 1-minute bar doesn't say which came first, so the worse case is assumed.
+- **Gaps:** if a bar opens beyond your stop, you are filled at the open (worse than the stop), not at the
+  stop. That is what happens to real stop orders.
+- **No immediate re-entry** in the same direction after a stop or target exit; the signal has to reset first.
+- **Regular Trading Hours only** (09:30–16:00 New York). Orders never carry overnight. Any open position
+  is closed on the session's last bar, and a signal on that bar is dropped. You are always flat overnight.
+- **No new positions after 15:50** (configurable). Exits are still allowed.
+- **Daily loss limit:** once the session's realised plus open P&L reaches −limit, the position exits at
+  the next bar's open and the rest of the day is blocked. Prop-firm accounts enforce rules like this.
+- **Whole contracts** and **dollar costs**, using the Phase 1 cost model on every fill. Targets also pay
+  slippage, which is conservative: a real limit order may fill without it.
+- **Trade log timestamps** include the time and the New York offset, e.g. `2025-03-04T09:31:00-05:00`.
+
+### Annualisation, in plain words
+A Sharpe ratio is "average return ÷ variability", scaled to a year. With minute bars, the per-minute
+returns are mostly zero and not independent of each other, so scaling by √(252 × 390) would make results
+look far more precise than they are. ATLAS sums P&L per **session** and scales daily returns by √252.
+
+### Proving there is no look-ahead
+Look-ahead bias means using information you could not have had at the time; it is the most common
+reason backtests look too good. The tests check it three ways:
+1. `assert_causal`: a signal computed on all data must equal the same signal computed on data cut off at
+   any bar, up to that bar. Use it on every new signal function.
+2. Delete the last sessions: every trade and equity value before the cut must be unchanged.
+3. Scramble every price after a mid-session bar: trades finished before it, and equity up to it,
+   must be unchanged.
+
+### Apex rules
+`backend/config/apex_rules.toml` is **deliberately empty**: VERIFY on apextraderfunding.com. ATLAS doesn't
+guess prop-firm rules, and the loader refuses the file until you fill it in with the source page and date
+and set `verified = true`. The engine already supports a daily loss limit; plug the verified value in.
