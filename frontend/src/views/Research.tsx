@@ -63,7 +63,7 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
               return (
                 <li key={k}>
                   <button onClick={() => setAgentSel(k)} className={`grid w-full grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] px-2 py-3 text-left transition-colors md:grid-cols-[24px_220px_minmax(0,1fr)_auto] ${on ? 'bg-cy/[0.06]' : 'hover:bg-white/[0.03]'}`}>
-                    <span className={`num text-[13px] ${on ? 'text-cy' : 'text-ink-400'}`}>{i + 1}</span>
+                    <span className={`num text-[13px] ${on ? 'text-cy' : 'text-ink-300'}`}>{i + 1}</span>
                     <span className="min-w-0"><span className="block text-[14px] font-medium text-white">{label}</span><span className="block text-[12.5px] text-ink-300">{a.title.replace(' Agent', '')}</span></span>
                     <span className="hidden min-w-0 text-[13px] leading-snug text-ink-300 md:block">{AGENT_PLAIN[k]?.role ?? a.role}</span>
                     <span className="flex items-center gap-2 text-[12.5px] whitespace-nowrap text-ink-300">
@@ -119,9 +119,9 @@ export function ResearchView({ go, reloadOverview }: ViewProps) {
               </div>
               {latest.narration && <Notice tone="vi" title="Narrated summary (AI-written from the numbers above)">{latest.narration.text}</Notice>}
               <Disclosure title="Decision log" meta={`${latest.decisions.length} entries`}>
-                <ol className="space-y-1 text-[13px] text-ink-200">{latest.decisions.map((d: string, i: number) => <li key={i} className="flex gap-3"><span className="num w-5 shrink-0 text-ink-400">{i + 1}</span><span>{d}</span></li>)}</ol>
+                <ol className="space-y-1 text-[13px] text-ink-200">{latest.decisions.map((d: string, i: number) => <li key={i} className="flex gap-3"><span className="num w-5 shrink-0 text-ink-300">{i + 1}</span><span>{d}</span></li>)}</ol>
               </Disclosure>
-              <p className="text-[12px] text-ink-400">{latest.disclaimer}</p>
+              <p className="text-[12px] text-ink-300">{latest.disclaimer}</p>
             </div>
           )}
         </Panel>

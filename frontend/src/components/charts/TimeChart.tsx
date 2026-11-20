@@ -3,6 +3,7 @@ import {
   type IChartApi, type ISeriesApi, type SeriesType, type Time, type UTCTimestamp,
 } from 'lightweight-charts'
 import { useEffect, useRef, useState } from 'react'
+import { alpha, resolve, usePrefs } from '../../lib/prefs'
 
 const toUtc = (t: string) => (Math.floor(Date.parse(t) / 1000) as UTCTimestamp)
 
@@ -13,6 +14,17 @@ export type TSeries =
   | { kind: 'candle'; id: string; label: string; data: { time: string; open: number; high: number; low: number; close: number }[] }
 
 /** lightweight-charts wrapper: dark theme, recessive grid, crosshair legend showing hovered values. */
+function summary(series: TSeries[], format: (v: number) => string, percent?: boolean) {
+  const fmt = (v: number) => (percent ? `${(v * 100).toFixed(1)}%` : format(v))
+  const parts = series.filter((x) => x.kind !== 'histogram' && x.data.length).map((x) => {
+    const d = x.data as { time: string; value?: number; close?: number }[]
+    const last = d[d.length - 1], first = d[0]
+    const v = (p: typeof last) => p.value ?? p.close ?? 0
+    return `${x.label}: ${fmt(v(first))} on ${first.time.slice(0, 10)} to ${fmt(v(last))} on ${last.time.slice(0, 10)}`
+  })
+  return parts.length ? `Time chart. ${parts.join('. ')}.` : 'Time chart with no data.'
+}
+
 export function TimeChart({ series, height = 300, format = (v: number) => v.toFixed(4), percent = false }: {
   series: TSeries[]
   height?: number
@@ -21,6 +33,7 @@ export function TimeChart({ series, height = 300, format = (v: number) => v.toFi
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  const prefs = usePrefs()
   const [hover, setHover] = useState<{ time: string; vals: { label: string; color: string; v: string }[] } | null>(null)
 
   useEffect(() => {
@@ -29,11 +42,11 @@ export function TimeChart({ series, height = 300, format = (v: number) => v.toFi
     const chart = createChart(el, {
       height,
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#a4b6c7', fontFamily: 'Inter, system-ui, sans-serif', fontSize: 11, attributionLogo: false },
-      grid: { vertLines: { color: 'rgba(90,125,155,0.35)' }, horzLines: { color: 'rgba(90,125,155,0.35)' } },
-      rightPriceScale: { borderColor: '#1d2a37' },
-      timeScale: { borderColor: '#1d2a37' },
-      crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#3f5265', labelBackgroundColor: '#0a1018' }, horzLine: { color: '#3f5265', labelBackgroundColor: '#0a1018' } },
+      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: resolve('var(--text-2)'), fontFamily: 'Inter, system-ui, sans-serif', fontSize: 11, attributionLogo: false },
+      grid: { vertLines: { color: alpha('var(--grid)', 0.6) }, horzLines: { color: alpha('var(--grid)', 0.6) } },
+      rightPriceScale: { borderColor: resolve('var(--border)') },
+      timeScale: { borderColor: resolve('var(--border)') },
+      crosshair: { mode: CrosshairMode.Normal, vertLine: { color: resolve('var(--muted)'), labelBackgroundColor: resolve('var(--raised)') }, horzLine: { color: resolve('var(--muted)'), labelBackgroundColor: resolve('var(--raised)') } },
       localization: { priceFormatter: (v: number) => (percent ? `${(v * 100).toFixed(1)}%` : format(v)) },
     })
     chartRef.current = chart
@@ -43,14 +56,14 @@ export function TimeChart({ series, height = 300, format = (v: number) => v.toFi
     for (const s of series) {
       let api: ISeriesApi<SeriesType>
       if (s.kind === 'line') {
-        api = chart.addSeries(LineSeries, { color: s.color, lineWidth: (s.width ?? 2) as 1 | 2 | 3, lineStyle: s.dashed ? LineStyle.Dashed : LineStyle.Solid, priceLineVisible: false, lastValueVisible: true, title: '' })
+        api = chart.addSeries(LineSeries, { color: resolve(s.color), lineWidth: (s.width ?? 2) as 1 | 2 | 3, lineStyle: s.dashed ? LineStyle.Dashed : LineStyle.Solid, priceLineVisible: false, lastValueVisible: true, title: '' })
       } else if (s.kind === 'area') {
-        api = chart.addSeries(AreaSeries, { lineColor: s.color, topColor: `${s.color}55`, bottomColor: `${s.color}05`, lineWidth: 2, priceLineVisible: false })
+        api = chart.addSeries(AreaSeries, { lineColor: resolve(s.color), topColor: alpha(s.color, 0.33), bottomColor: alpha(s.color, 0.02), lineWidth: 2, priceLineVisible: false })
       } else if (s.kind === 'histogram') {
-        api = chart.addSeries(HistogramSeries, { color: s.color, priceScaleId: s.scale ?? 'vol', priceLineVisible: false, lastValueVisible: false })
+        api = chart.addSeries(HistogramSeries, { color: resolve(s.color), priceScaleId: s.scale ?? 'vol', priceLineVisible: false, lastValueVisible: false })
         chart.priceScale(s.scale ?? 'vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
       } else {
-        api = chart.addSeries(CandlestickSeries, { upColor: '#3ddc97', downColor: '#ff5d5d', borderVisible: false, wickUpColor: '#3ddc9799', wickDownColor: '#ff5d5d99', priceLineVisible: false })
+        api = chart.addSeries(CandlestickSeries, { upColor: resolve('var(--positive)'), downColor: resolve('var(--negative)'), borderVisible: false, wickUpColor: alpha('var(--positive)', 0.6), wickDownColor: alpha('var(--negative)', 0.6), priceLineVisible: false })
       }
       api.setData((intraday ? s.data.map((d) => ({ ...d, time: toUtc(d.time) })) : s.data) as never)
       apis.push({ s, api })
@@ -66,7 +79,7 @@ export function TimeChart({ series, height = 300, format = (v: number) => v.toFi
         if (!d) return []
         const v = d.value ?? d.close
         if (v === undefined) return []
-        const color = s.kind === 'candle' ? '#d4dfe9' : s.color
+        const color = s.kind === 'candle' ? 'var(--text)' : s.color
         return [{ label: s.label, color, v: percent ? `${(v * 100).toFixed(2)}%` : format(v) }]
       })
       setHover({ time: typeof p.time === 'number' ? `${new Date(p.time * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC` : String(p.time as Time), vals })
@@ -75,11 +88,11 @@ export function TimeChart({ series, height = 300, format = (v: number) => v.toFi
       chart.remove()
       chartRef.current = null
     }
-  }, [series, height, format, percent])
+  }, [series, height, format, percent, prefs.updown])
 
   return (
-    <div className="relative w-full" style={{ height }}>
-      <div ref={ref} className="absolute inset-0" />
+    <div className="relative w-full" style={{ height }} role="img" aria-label={summary(series, format, percent)}>
+      <div ref={ref} className="absolute inset-0" aria-hidden />
       {hover && (
         <div className="pointer-events-none absolute left-2 top-1 z-10 rounded-[9px] border border-white/10 bg-[rgba(10,18,27,0.86)] px-2.5 py-1.5 text-[11px] backdrop-blur-xl">
           <div className="text-ink-300">{hover.time}</div>

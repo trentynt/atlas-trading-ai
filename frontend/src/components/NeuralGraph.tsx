@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useEvents } from '../lib/events'
+import { reducedMotion, resolve, setPrefs, usePrefs } from '../lib/prefs'
 import type { AtlasEvent, GraphData, GraphNode } from '../lib/types'
 
 /**
@@ -14,24 +15,29 @@ import type { AtlasEvent, GraphData, GraphNode } from '../lib/types'
  */
 
 type Kind = GraphNode['kind']
+// Colours are design tokens (index.css), resolved to concrete values when the network is built.
 const STYLE: Record<Kind, { color: string; r: number; shell: number; prio: number }> = {
-  core: { color: '#f2f5f8', r: 6, shell: 0.12, prio: 10 },
-  agent: { color: '#5eead4', r: 5, shell: 0.42, prio: 9 },
-  risk: { color: '#ff6b6b', r: 5, shell: 0.42, prio: 8 },
-  paper: { color: '#f5b553', r: 5, shell: 0.42, prio: 8 },
-  forecast: { color: '#b4a7f5', r: 4.5, shell: 0.42, prio: 6 },
-  data: { color: '#7cb4ff', r: 4.8, shell: 0.7, prio: 7 },
-  strategy_type: { color: '#b4a7f5', r: 4.2, shell: 0.7, prio: 5 },
-  deployed: { color: '#f5b553', r: 4.6, shell: 0.86, prio: 9 },
-  feature: { color: '#8aa4bd', r: 1.8, shell: 0.84, prio: 0 },
-  job: { color: '#aab4c0', r: 1.8, shell: 0.95, prio: 0 },
-  run: { color: '#77c9d4', r: 1.15, shell: 1, prio: 0 },
-  experiment: { color: '#aab4c0', r: 2.6, shell: 1, prio: 1 },
+  core: { color: 'var(--text)', r: 6, shell: 0.12, prio: 10 },
+  agent: { color: 'var(--brand)', r: 5, shell: 0.42, prio: 9 },
+  risk: { color: 'var(--negative)', r: 5, shell: 0.42, prio: 8 },
+  paper: { color: 'var(--warning)', r: 5, shell: 0.42, prio: 8 },
+  forecast: { color: 'var(--family)', r: 4.5, shell: 0.42, prio: 6 },
+  data: { color: 'var(--markets)', r: 4.8, shell: 0.7, prio: 7 },
+  strategy_type: { color: 'var(--family)', r: 4.2, shell: 0.7, prio: 5 },
+  deployed: { color: 'var(--warning)', r: 4.6, shell: 0.86, prio: 9 },
+  feature: { color: 'var(--text-3)', r: 1.8, shell: 0.84, prio: 0 },
+  job: { color: 'var(--text-2)', r: 1.8, shell: 0.95, prio: 0 },
+  run: { color: 'var(--text-3)', r: 1.15, shell: 1, prio: 0 },
+  experiment: { color: 'var(--text-2)', r: 2.6, shell: 1, prio: 1 },
 }
-const VERDICT: Record<string, string> = { survived: '#6ee7a8', requires_confirmation: '#f5b553', insufficient_evidence: '#aab4c0', requires_revalidation: '#aab4c0', rejected: '#ff6b6b', accepted: '#6ee7a8', manual: '#dde3ea' }
-const EDGE_RGB: Record<string, [number, number, number]> = {
-  control: [222, 230, 238], flow: [94, 234, 212], derive: [124, 180, 255], judge: [255, 107, 107], eval: [150, 205, 255],
-  sibling: [190, 205, 220], exec: [110, 205, 215], promote: [245, 181, 83],
+const VERDICT: Record<string, string> = { survived: 'var(--positive)', requires_confirmation: 'var(--warning)', insufficient_evidence: 'var(--text-2)', requires_revalidation: 'var(--text-2)', rejected: 'var(--negative)', accepted: 'var(--positive)', manual: 'var(--text)' }
+const EDGE_TOKEN: Record<string, string> = {
+  control: 'var(--text)', flow: 'var(--brand)', derive: 'var(--markets)', judge: 'var(--negative)', eval: 'var(--markets)',
+  sibling: 'var(--text-2)', exec: 'var(--brand)', promote: 'var(--warning)',
+}
+const rgbOf = (c: string): [number, number, number] => {
+  const h = resolve(c).replace('#', '')
+  return /^[0-9a-f]{6}$/i.test(h) ? [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)] : [200, 210, 220]
 }
 
 type V3 = [number, number, number]
@@ -63,9 +69,9 @@ function build(g: GraphData) {
     list.forEach((n, i) => {
       const st = STYLE[n.kind] ?? STYLE.experiment
       const u: V3 = n.kind === 'core' ? [0, i === 0 ? 0.55 : -0.55, 0] : fib(i, list.length, shell * 9)
-      let color = st.color
-      if (n.kind === 'experiment') color = VERDICT[String(n.verdict)] ?? st.color
-      if (n.kind === 'data' && n.stale) color = '#f5b553'
+      let color = resolve(st.color)
+      if (n.kind === 'experiment') color = resolve(VERDICT[String(n.verdict)] ?? st.color)
+      if (n.kind === 'data' && n.stale) color = resolve('var(--warning)')
       const dust: V3[] = []
       if (n.kind === 'experiment') {
         const k = Math.min(40, Number(n.trades) || 0)
@@ -85,7 +91,7 @@ function build(g: GraphData) {
     const mid: V3 = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2]
     const ml = len(mid) || 1
     const lift = Math.max(len(A), len(B)) * 1.02 // arcs follow the sphere surface instead of cutting through it
-    edges.push({ a, b, c: [(mid[0] / ml) * lift, (mid[1] / ml) * lift, (mid[2] / ml) * lift], rgb: EDGE_RGB[e.kind] ?? EDGE_RGB.derive })
+    edges.push({ a, b, c: [(mid[0] / ml) * lift, (mid[1] / ml) * lift, (mid[2] / ml) * lift], rgb: rgbOf(EDGE_TOKEN[e.kind] ?? EDGE_TOKEN.derive) })
   })
   const per = Math.max(1, Math.min(6, Math.round(1800 / Math.max(1, edges.length))))
   const strands: Strand[] = []
@@ -102,7 +108,7 @@ function build(g: GraphData) {
   return { nodes, edges, strands, per, index, adj }
 }
 
-export function NeuralGraph({ data, onSelect, selected, height = 620, controls = true }: {
+export function NeuralGraph({ data, onSelect, selected, height: maxHeight = 620, controls = true }: {
   data: GraphData | null
   onSelect?: (n: GraphNode | null) => void
   selected?: string | null
@@ -112,11 +118,21 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
   const wrap = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [w, setW] = useState(800)
+  // On narrow screens the sphere is sized to the width, so it never forces a tall empty area.
+  const height = w < 640 ? Math.min(maxHeight, Math.max(300, Math.round(w * 0.95))) : maxHeight
   const [hover, setHover] = useState<N3 | null>(null)
-  const [ambient, setAmbient] = useState(false) // decorative haze is opt-in
-  const [spin, setSpin] = useState(false) // camera rotation is opt-in; motion is reserved for real events
-  const [live, setLive] = useState(0)
-  const G = useMemo(() => (data ? build(data) : null), [data])
+  const prefs = usePrefs()
+  const ambient = prefs.sphereStrands // decorative haze is opt-in (saved preference)
+  const spin = prefs.sphereSpin // camera rotation is opt-in; motion is reserved for real events
+  const setAmbient = (v: boolean) => setPrefs({ sphereStrands: v })
+  const setSpin = (v: boolean) => setPrefs({ sphereSpin: v })
+  const [live, setLive] = useState('')
+  const [kbd, setKbd] = useState(-1)
+  const kbdRef = useRef(-1)
+  const lastSaid = useRef(0)
+  useEffect(() => { kbdRef.current = kbd; S.current.dirty = true }, [kbd])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const G = useMemo(() => (data ? build(data) : null), [data, prefs.updown])
   const { subscribe } = useEvents()
   const S = useRef({ yaw: 0.7, pitch: 0.28, vy: 0, vp: 0, drag: null as null | { x: number; y: number; moved: boolean; t: number }, pulses: [] as Pulse[], flash: new Map<number, number>(), hoverIdx: -1, visible: true, selected: null as string | null, ambient: true, spin: true, dirty: true })
 
@@ -141,7 +157,7 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
     if (typeof ev.data?.node === 'string') ids.add(ev.data.node)
     if (ev.source && G.index.has(`agent:${ev.source}`)) ids.add(`agent:${ev.source}`)
     if (typeof ev.data?.symbol === 'string') ids.add(`data:${ev.data.symbol}`)
-    const color = ev.level === 'error' || ev.category === 'risk' ? '#ff6b6b' : ev.level === 'warn' || ev.category === 'paper' ? '#f5b553' : '#9ff6e8'
+    const color = resolve(ev.level === 'error' || ev.category === 'risk' ? 'var(--negative)' : ev.level === 'warn' || ev.category === 'paper' ? 'var(--warning)' : 'var(--brand)')
     const st = S.current
     let n = 0
     for (const id of ids) {
@@ -154,7 +170,11 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
       }
     }
     if (st.pulses.length > 400) st.pulses.splice(0, st.pulses.length - 400)
-    if (n || ids.size) { st.dirty = true; setLive((x) => x + 1) }
+    if (n || ids.size) {
+      st.dirty = true
+      const t = performance.now()
+      if (t - lastSaid.current > 10_000) { lastSaid.current = t; setLive(`Research activity: ${ev.message.slice(0, 140)}`) }
+    }
   }), [subscribe, G])
 
   useEffect(() => {
@@ -164,7 +184,8 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
     c.width = w * dpr
     c.height = height * dpr
     const ctx = c.getContext('2d')!
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const reduce = reducedMotion(prefs)
+    const outline = resolve('var(--border)'), labelBg = resolve('var(--bg)'), labelFg = resolve('var(--text)'), accent = resolve('var(--brand)')
     const cx = w / 2, cy = height / 2
     const R = Math.max(80, Math.min(w, height) / 2 - (w < 560 ? 26 : 46))
     const st = S.current
@@ -197,14 +218,10 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
       ctx.globalCompositeOperation = 'source-over'
       ctx.clearRect(0, 0, w, height)
 
-      // globe body: soft fill + rim light (pure lighting, carries no data)
-      const body = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.05, cx, cy, R * 1.08)
-      body.addColorStop(0, 'rgba(160,200,215,0.04)'); body.addColorStop(0.55, 'rgba(70,110,150,0.03)'); body.addColorStop(1, 'rgba(7,9,12,0)')
-      ctx.fillStyle = body; ctx.beginPath(); ctx.arc(cx, cy, R * 1.08, 0, Math.PI * 2); ctx.fill()
-      ctx.strokeStyle = 'rgba(190,225,235,0.07)'; ctx.lineWidth = 1
+      // outline and equator/meridian guides: orientation only, no lighting effects
+      ctx.strokeStyle = outline; ctx.lineWidth = 1; ctx.globalAlpha = 0.9
       ctx.beginPath(); ctx.arc(cx, cy, R * 1.03, 0, Math.PI * 2); ctx.stroke()
-      // equator & meridian guides
-      ctx.strokeStyle = 'rgba(190,225,235,0.04)'
+      ctx.globalAlpha = 0.5
       for (const tilt of [0, Math.PI / 2]) {
         ctx.beginPath()
         for (let a = 0; a <= 64; a++) {
@@ -216,7 +233,7 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
         ctx.stroke()
       }
 
-      ctx.globalCompositeOperation = 'lighter'
+      ctx.globalAlpha = 1
       const focusEdges = focus >= 0 ? new Set(G.adj.get(focus) ?? []) : null
       const neigh = new Set<number>()
       focusEdges?.forEach((ei) => { neigh.add(G.edges[ei].a); neigh.add(G.edges[ei].b) })
@@ -241,10 +258,12 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
         const depth = 0.25 + 0.75 * ((A.sz + B.sz) / 2 + 1) / 2
         const al = on ? 0.85 : focus >= 0 ? 0.035 : 0.16 * depth
         ctx.lineWidth = on ? 1.4 : 0.8
-        ctx.strokeStyle = on ? 'rgba(158,246,232,' + al + ')' : `rgba(${e.rgb[0]},${e.rgb[1]},${e.rgb[2]},${al})`
+        ctx.strokeStyle = on ? accent : `rgba(${e.rgb[0]},${e.rgb[1]},${e.rgb[2]},${al})`
+        ctx.globalAlpha = on ? al : 1
         const q = proj(e.c, k)
         ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.quadraticCurveTo(q[0], q[1], B.sx, B.sy); ctx.stroke()
       }
+      ctx.globalAlpha = 1
       // trade specks
       for (let ni = 0; ni < G.nodes.length; ni++) {
         const n = G.nodes[ni]
@@ -267,10 +286,8 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
         const q = proj(e.c, k)
         const t = p.t, u = 1 - t
         const x = u * u * A.sx + 2 * u * t * q[0] + t * t * B.sx, y = u * u * A.sy + 2 * u * t * q[1] + t * t * B.sy
-        const a = Math.sin(Math.PI * t)
-        const g = ctx.createRadialGradient(x, y, 0, x, y, 7)
-        g.addColorStop(0, p.color); g.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.globalAlpha = a * 0.9; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill()
+        // a solid dot travelling the real relationship (no glow)
+        ctx.globalAlpha = Math.sin(Math.PI * t) * 0.95; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(x, y, 2.6, 0, Math.PI * 2); ctx.fill()
       }
       ctx.globalAlpha = 1
       // nodes back-to-front
@@ -281,21 +298,16 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
         const dim = focus >= 0 && i !== focus && !neigh.has(i)
         const base = (dim ? 0.16 : 1) * fog
         const r = n.r * n.sc * (i === focus ? 1.45 : 1)
-        if (n.prio >= 5) {
-          const g = ctx.createRadialGradient(n.sx, n.sy, 0, n.sx, n.sy, r * 3.2)
-          g.addColorStop(0, n.color); g.addColorStop(1, 'rgba(0,0,0,0)')
-          ctx.globalAlpha = base * 0.12; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.sx, n.sy, r * 3.2, 0, Math.PI * 2); ctx.fill()
-        }
         ctx.globalAlpha = base; ctx.fillStyle = n.color
         ctx.beginPath(); ctx.arc(n.sx, n.sy, r, 0, Math.PI * 2); ctx.fill()
-        if (n.prio >= 5) { ctx.globalAlpha = base * 0.9; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(n.sx - r * 0.28, n.sy - r * 0.28, r * 0.32, 0, Math.PI * 2); ctx.fill() }
+        if (i === kbdRef.current) { ctx.globalAlpha = 1; ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(n.sx, n.sy, r + 5, 0, Math.PI * 2); ctx.stroke() }
         const f0 = st.flash.get(i)
         if (f0 !== undefined) {
           const age = (now - f0) / 1200
           if (age > 1) st.flash.delete(i)
-          else { ctx.globalAlpha = (1 - age) * 0.9; ctx.strokeStyle = '#9ff6e8'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(n.sx, n.sy, r + 3 + age * 18, 0, Math.PI * 2); ctx.stroke() }
+          else { ctx.globalAlpha = (1 - age) * 0.9; ctx.strokeStyle = accent; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(n.sx, n.sy, r + 3 + age * 18, 0, Math.PI * 2); ctx.stroke() }
         }
-        if (n.kind === 'agent' && n.status === 'running') { ctx.globalAlpha = 0.9; ctx.strokeStyle = '#5eead4'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(n.sx, n.sy, r + 4, 0, Math.PI * 2); ctx.stroke() }
+        if (n.kind === 'agent' && n.status === 'running') { ctx.globalAlpha = 0.9; ctx.strokeStyle = accent; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(n.sx, n.sy, r + 4, 0, Math.PI * 2); ctx.stroke() }
       }
       // labels: priority order, front-facing, greedy collision avoidance
       ctx.globalCompositeOperation = 'source-over'
@@ -314,9 +326,10 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
         if (i !== focus && placed.some((p) => box[0] < p[0] + p[2] && box[0] + box[2] > p[0] && box[1] < p[1] + p[3] && box[1] + box[3] > p[1])) continue
         placed.push(box)
         ctx.globalAlpha = i === focus ? 1 : Math.min(1, 0.45 + (n.sz + 0.2) * 0.75)
-        ctx.fillStyle = 'rgba(10,13,17,0.72)'
+        ctx.fillStyle = labelBg; ctx.globalAlpha *= 0.85
         ctx.beginPath(); ctx.roundRect(box[0], box[1], box[2], box[3], 7); ctx.fill()
-        ctx.fillStyle = i === focus ? '#ffffff' : '#dde3ea'
+        ctx.globalAlpha = i === focus ? 1 : Math.min(1, 0.45 + (n.sz + 0.2) * 0.75)
+        ctx.fillStyle = labelFg
         ctx.textAlign = 'left'
         ctx.fillText(txt, x0, n.sy + 4)
       }
@@ -324,7 +337,28 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
     }
     raf = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(raf)
-  }, [G, w, height])
+  }, [G, w, height, prefs])
+
+  // Keyboard: arrows rotate, N / P step through the main entities, Enter inspects, Escape clears.
+  const stepOrder = useMemo(() => (G ? [...G.nodes.keys()].filter((i) => G.nodes[i].prio >= 5).sort((a, b) => G.nodes[b].prio - G.nodes[a].prio) : []), [G])
+  const onKey = (e: React.KeyboardEvent) => {
+    const st = S.current
+    const nudge: Record<string, [number, number]> = { ArrowLeft: [-0.06, 0], ArrowRight: [0.06, 0], ArrowUp: [0, -0.05], ArrowDown: [0, 0.05] }
+    if (nudge[e.key]) {
+      e.preventDefault(); st.yaw += nudge[e.key][0]; st.pitch = Math.max(-1.1, Math.min(1.1, st.pitch + nudge[e.key][1])); st.dirty = true
+    } else if ((e.key === 'n' || e.key === 'p') && stepOrder.length && G) {
+      e.preventDefault()
+      const pos = stepOrder.indexOf(kbd)
+      const next = stepOrder[(pos + (e.key === 'n' ? 1 : stepOrder.length - 1) + (pos < 0 && e.key === 'p' ? 1 : 0)) % stepOrder.length]
+      setKbd(next)
+      const n = G.nodes[next]
+      setLive(`${n.label}, ${n.kind.replace('_', ' ')}, ${n.deg} recorded relationship${n.deg === 1 ? '' : 's'}. Press Enter to inspect.`)
+    } else if (e.key === 'Enter' && kbd >= 0 && G) {
+      e.preventDefault(); onSelect?.(G.nodes[kbd])
+    } else if (e.key === 'Escape') {
+      setKbd(-1); onSelect?.(null)
+    }
+  }
 
   const pick = (e: React.PointerEvent) => {
     if (!G) return -1
@@ -339,9 +373,11 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
   }
 
   return (
-    <div ref={wrap} className="relative w-full touch-none select-none" style={{ height }}>
-      <canvas ref={canvas} role="img" aria-label={G ? `Research network: ${G.nodes.length} entities and ${G.edges.length} recorded relationships` : 'Research network loading'}
-        className="absolute inset-0 cursor-grab active:cursor-grabbing" style={{ width: w, height }}
+    <div ref={wrap} className="relative w-full select-none" style={{ height }}>
+      <canvas ref={canvas} role="application" tabIndex={0} onKeyDown={onKey} onBlur={() => setKbd(-1)}
+        aria-roledescription="interactive network"
+        aria-label={G ? `Research network: ${G.nodes.length} entities and ${G.edges.length} recorded relationships. Arrow keys rotate, N and P step through the main entities, Enter inspects, Escape clears.` : 'Research network loading'}
+        className="absolute inset-0 cursor-grab rounded-[14px] active:cursor-grabbing" style={{ width: w, height, touchAction: 'pan-y' }}
         onPointerDown={(e) => { S.current.drag = { x: e.clientX, y: e.clientY, moved: false, t: performance.now() }; (e.target as Element).setPointerCapture(e.pointerId) }}
         onPointerMove={(e) => {
           const st = S.current
@@ -389,7 +425,7 @@ export function NeuralGraph({ data, onSelect, selected, height = 620, controls =
           <div className="mt-0.5 text-ink-300">{hover.deg} recorded relationship{hover.deg === 1 ? '' : 's'} · click to inspect</div>
         </div>
       )}
-      <span className="sr-only" aria-live="polite">{live ? 'Research activity received' : ''}</span>
+      <span className="sr-only" aria-live="polite">{live}</span>
     </div>
   )
 }

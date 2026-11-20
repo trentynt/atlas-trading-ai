@@ -34,7 +34,7 @@ export function ExperimentsView({ go }: ViewProps) {
   useEffect(() => { if (!selId && rows.length && window.innerWidth >= 1280) setSel(rows[0].id) }, [rows.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pts = useMemo(() => (dist.data?.points ?? []).filter((p) => p.is_sharpe !== null && p.oos_sharpe !== null).map((p) => ({
-    id: p.id, x: p.is_sharpe, y: p.oos_sharpe, group: p.disposition, color: p.disposition === 'survived' ? UP : p.disposition === 'requires_confirmation' ? '#f5b553' : DN, label: `${strategyName(p.strategy)} · ${p.symbol}`,
+    id: p.id, x: p.is_sharpe, y: p.oos_sharpe, group: p.disposition, color: p.disposition === 'survived' ? UP : p.disposition === 'requires_confirmation' ? 'var(--warning)' : DN, label: `${strategyName(p.strategy)} · ${p.symbol}`,
   })), [dist.data])
   const oos = (dist.data?.points ?? []).map((p) => p.oos_sharpe).filter((x): x is number => x !== null)
   const total = dist.data?.points.length ?? 0
@@ -106,7 +106,7 @@ export function ExperimentsView({ go }: ViewProps) {
         <h2 className="mb-3 text-[18px] font-semibold tracking-[-0.015em] text-white">The bigger picture</h2>
         <div className="grid grid-cols-12 gap-5">
           <Panel className="col-span-12 lg:col-span-7" title="Looked good vs. held up" subtitle="Each dot is an idea. Far below the diagonal = it looked great on design data and fell apart on new data."
-            right={<Legend items={[{ label: 'Survived', color: UP }, { label: 'Awaiting confirmation', color: '#f5b553' }, { label: 'Rejected', color: DN }, { label: 'Equal', color: NEUTRAL, dashed: true }]} />}>
+            right={<Legend items={[{ label: 'Survived', color: UP }, { label: 'Awaiting confirmation', color: 'var(--warning)' }, { label: 'Rejected', color: DN }, { label: 'Equal', color: NEUTRAL, dashed: true }]} />}>
             {pts.length ? <Scatter points={pts} xLabel="Sharpe on design data" yLabel="Sharpe in selection test" diagonal refY={dist.data?.critic_rules.min_test_sharpe} onPick={(id) => setSel(Number(id))} height={300} /> : <EmptyState title="No data yet" />}
           </Panel>
           <Panel className="col-span-12 lg:col-span-5" title="How ideas performed in the selection test" tag={<HistTag />}>
@@ -205,7 +205,7 @@ function Detail({ id, go }: { id: number; go: ViewProps['go'] }) {
                   <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full ${c.passed ? 'bg-up/[0.15] text-up' : c.blocking ? 'bg-dn/[0.13] text-dn' : 'bg-am/[0.13] text-am'}`}>
                     <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">{c.passed ? <path d="m4 8.5 2.5 2.5L12 5" /> : <path d="M5 5l6 6M11 5l-6 6" />}</svg>
                   </span>
-                  <span className="flex-1 text-[13px] text-ink-100">{CHECK_NAME[c.name] ?? c.name}{!c.blocking && <span className="text-ink-400"> · advisory</span>}</span>
+                  <span className="flex-1 text-[13px] text-ink-100">{CHECK_NAME[c.name] ?? c.name}{!c.blocking && <span className="text-ink-300"> · advisory</span>}</span>
                   <span className="tnum text-[12px] text-ink-300">{typeof c.value === 'number' ? num(c.value, 2) : String(c.value ?? '—')}</span>
                 </li>
               ))}
@@ -239,7 +239,7 @@ function Detail({ id, go }: { id: number; go: ViewProps['go'] }) {
             <li>Searches made before the trial registry existed were only partly recorded, so attempt counts are a lower bound.</li>
           </ul>
         </Disclosure>
-        <p className="text-[12px] text-ink-400">Surviving validation is not a recommendation and not evidence of future profit.</p>
+        <p className="text-[12px] text-ink-300">Surviving validation is not a recommendation and not evidence of future profit.</p>
       </div>
     </Panel>
   )
@@ -259,7 +259,7 @@ function CompareDrawer({ ids, open, onClose }: { ids: number[]; open: boolean; o
       {!rows.length ? <Loading /> : (
         <div className="overflow-x-auto">
           <table className="data">
-            <thead><tr><th />{rows.map((e) => <th key={e.id} className="!text-right">{strategyName(e.strategy)}<div className="font-normal text-ink-400">{e.symbol} · #{e.id}</div></th>)}</tr></thead>
+            <thead><tr><th />{rows.map((e) => <th key={e.id} className="!text-right">{strategyName(e.strategy)}<div className="font-normal text-ink-300">{e.symbol} · #{e.id}</div></th>)}</tr></thead>
             <tbody>
               {metric('Outcome', (e) => e.kind === 'hypothesis_test' && dispositionOf(e) ? <Badge tone={DISPOSITION[dispositionOf(e)!].tone}>{DISPOSITION[dispositionOf(e)!].short}</Badge> : 'Backtest')}
               {metric('Return, design period', (e) => <span className={tone(e.metrics?.train?.total_return)}>{pct(e.metrics?.train?.total_return, 1)}</span>)}

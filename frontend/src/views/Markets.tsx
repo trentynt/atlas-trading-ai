@@ -23,7 +23,7 @@ const smaLine = (bars: Bar[], n: number) => {
 }
 
 const RANGES = [{ value: '90', label: '3M' }, { value: '252', label: '1Y' }, { value: '756', label: '3Y' }, { value: '5000', label: 'All' }]
-const REGIME_COLOR: Record<string, string> = { trend_up: '#6ee7a8', trend_down: '#ff6b6b', range: '#7f8a97' }
+const REGIME_COLOR: Record<string, string> = { trend_up: 'var(--positive)', trend_down: 'var(--negative)', range: 'var(--text-3)' }
 const FUTURE = ['Stocks', 'ETFs', 'Options', 'Futures']
 type TF = '1d' | '1w' | '6h' | '1h'
 const QUALITY: Record<string, { tone: 'up' | 'am' | 'dn'; label: string }> = { ok: { tone: 'up', label: 'Checks passed' }, warn: { tone: 'am', label: 'Usable with caveats' }, fail: { tone: 'dn', label: 'Failed checks' } }
@@ -80,7 +80,7 @@ export function MarketsView({ go }: ViewProps) {
     const ohlc = b.every((x) => x.o !== null)
     const s: TSeries[] = ohlc
       ? [{ kind: 'candle', id: 'px', label: sym, data: keep(b.map((x) => ({ time: x.t, open: x.o!, high: x.h!, low: x.l!, close: x.c }))) }]
-      : [{ kind: 'line', id: 'px', label: `${sym} reference rate`, color: '#eef2f6', data: keep(b.map((x) => ({ time: x.t, value: x.c }))), width: 2 }]
+      : [{ kind: 'line', id: 'px', label: `${sym} reference rate`, color: 'var(--text)', data: keep(b.map((x) => ({ time: x.t, value: x.c }))), width: 2 }]
     s.push({ kind: 'line', id: 'ma50', label: '50-period average', color: SERIES[0], data: keep(smaLine(b, 50)), width: 1 })
     s.push({ kind: 'line', id: 'ma200', label: '200-period average', color: SERIES[1], data: keep(smaLine(b, 200)), width: 1 })
     if (b.every((x) => x.v !== null)) s.push({ kind: 'histogram', id: 'vol', label: 'Volume', color: 'rgba(127,138,151,0.35)', data: keep(b.map((x) => ({ time: x.t, value: x.v! }))) })
@@ -101,7 +101,7 @@ export function MarketsView({ go }: ViewProps) {
         <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
           {(['crypto', 'fx'] as const).map((cls) => (
             <div key={cls} className="contents lg:block">
-              <div className="hidden px-1 pt-1 pb-1.5 text-[12px] font-medium text-ink-400 lg:block">{cls === 'fx' ? 'Forex · daily ECB reference rates' : 'Crypto · historical candles'}</div>
+              <div className="hidden px-1 pt-1 pb-1.5 text-[12px] font-medium text-ink-300 lg:block">{cls === 'fx' ? 'Forex · daily ECB reference rates' : 'Crypto · historical candles'}</div>
               {(markets.data ?? []).filter((x) => x.asset_class === cls).map((x) => {
                 const on = x.symbol === sym
                 return (
@@ -124,8 +124,8 @@ export function MarketsView({ go }: ViewProps) {
         </div>
         <div className="mt-4 hidden rounded-[14px] px-3.5 py-3 ring-1 ring-inset ring-white/[0.06] lg:block">
           <div className="text-[12.5px] font-medium text-ink-200">More asset classes</div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">{FUTURE.map((f) => <span key={f} className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[11.5px] text-ink-400">{f}</span>)}</div>
-          <p className="mt-2 text-[12px] leading-snug text-ink-400">Not supported yet. SIGNAL only shows markets with verified data.</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">{FUTURE.map((f) => <span key={f} className="rounded-full bg-white/[0.04] px-2 py-0.5 text-[11.5px] text-ink-300">{f}</span>)}</div>
+          <p className="mt-2 text-[12px] leading-snug text-ink-300">Not supported yet. SIGNAL only shows markets with verified data.</p>
         </div>
       </aside>
 
@@ -167,7 +167,7 @@ export function MarketsView({ go }: ViewProps) {
           <Segmented size="sm" value={tf} onChange={(v) => setTf(v as TF)} options={[...(isFx ? [] : [{ value: '1h', label: '1H' }, { value: '6h', label: '6H' }]), { value: '1d', label: 'Daily' }, { value: '1w', label: 'Weekly' }]} />
         </>}>
           <ErrorBox error={bars.error || refresh.error} onRetry={bars.reload} />
-          <div className="mb-2"><Legend items={[{ label: isFx ? 'Reference rate' : intraday ? `${tf} candles` : tf === '1w' ? 'Weekly candles' : 'Daily candles', color: '#eef2f6' }, { label: '50-period average', color: SERIES[0] }, { label: '200-period average', color: SERIES[1] }]} /></div>
+          <div className="mb-2"><Legend items={[{ label: isFx ? 'Reference rate' : intraday ? `${tf} candles` : tf === '1w' ? 'Weekly candles' : 'Daily candles', color: 'var(--text)' }, { label: '50-period average', color: SERIES[0] }, { label: '200-period average', color: SERIES[1] }]} /></div>
           {series.length ? <TimeChart series={series} height={400} format={fmt} /> : bars.loading ? <Loading rows={6} /> : (
             <EmptyState title="No price history yet" action={<Button small onClick={() => refresh.run()}>Fetch data</Button>}>Data for {sym} hasn't been downloaded. Fetching takes a few seconds.</EmptyState>
           )}
@@ -254,7 +254,7 @@ export function MarketsView({ go }: ViewProps) {
             </div>
           </Disclosure>
         )}
-        <div className="flex items-center gap-2 text-[12px] text-ink-400"><StatusDot tone={m?.is_stale ? 'am' : 'up'} />{m?.provider_notes}</div>
+        <div className="flex items-center gap-2 text-[12px] text-ink-300"><StatusDot tone={m?.is_stale ? 'am' : 'up'} />{m?.provider_notes}</div>
       </div>
     </div>
   )

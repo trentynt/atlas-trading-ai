@@ -122,7 +122,7 @@ export function CycleHistoryPanel({ go }: { go: ViewProps['go'] }) {
                   <tr key={h.job_id} title={h.error ?? undefined}>
                     <td className="whitespace-nowrap">{localTime(h.started_at ?? h.created_at)}</td>
                     <td>{TRIGGER[h.trigger] ?? h.trigger}{h.attempts > 1 ? ` · attempt ${h.attempts}` : ''}</td>
-                    <td><span className="inline-flex items-center gap-1.5"><StatusDot tone={t} />{label}</span>{h.error && <div className="max-w-[260px] truncate text-[12px] text-ink-400">{h.error}</div>}</td>
+                    <td><span className="inline-flex items-center gap-1.5"><StatusDot tone={t} />{label}</span>{h.error && <div className="max-w-[260px] truncate text-[12px] text-ink-300">{h.error}</div>}</td>
                     <td className="num text-right" title={h.result?.legacy ? 'Run under the superseded v1 method. Its findings were re-evaluated; see Discoveries.' : undefined}>{h.result ? <button className="hover:text-cy" onClick={() => go('experiments')}>{h.result.evaluated}{h.result.legacy ? ' · earlier method' : h.result.accepted ? ` · ${h.result.accepted} survived` : ''}</button> : '—'}</td>
                     <td className="num text-right whitespace-nowrap">{h.estimate?.cpu_s !== undefined ? `${num(h.estimate.cpu_s, 0)}s` : '—'} → {h.usage ? `${num(h.usage.cpu_s, 1)}s` : '—'}</td>
                     <td className="num text-right">{h.usage ? h.usage.data_requests : '—'}</td>
@@ -131,7 +131,7 @@ export function CycleHistoryPanel({ go }: { go: ViewProps['go'] }) {
               })}
             </tbody>
           </table>
-          {hist.data[0]?.estimate?.basis && <p className="mt-3 text-[12px] text-ink-400">Estimates: {hist.data[0].estimate.basis}.</p>}
+          {hist.data[0]?.estimate?.basis && <p className="mt-3 text-[12px] text-ink-300">Estimates: {hist.data[0].estimate.basis}.</p>}
         </div>
       )}
     </Panel>
@@ -179,7 +179,7 @@ export function AwayCard({ go }: { go: ViewProps['go'] }) {
           </div>
         </div>
       )}
-      <p className="mt-3 text-[11.5px] text-ink-400">{r.provenance}</p>
+      <p className="mt-3 text-[11.5px] text-ink-300">{r.provenance}</p>
     </Panel>
   )
 }

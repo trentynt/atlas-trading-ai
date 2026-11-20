@@ -9,25 +9,41 @@
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* neutral ramp (dark → light). ink-300/200/100 are tertiary/secondary/primary text */
-  --color-ink-950: #07090c;
-  --color-ink-900: #0b0e12;
-  --color-ink-850: #0f1318;
-  --color-ink-800: #13181e;
-  --color-ink-700: #191f27;
-  --color-ink-600: #222a33;
-  --color-ink-500: #2e3843;
-  --color-ink-400: #4a5562;
-  --color-ink-300: #7f8a97;
-  --color-ink-200: #aab4c0;
-  --color-ink-100: #dde3ea;
+  /* Official tokens (see :root below) exposed as utilities: bg-panel, text-text-2, border-border, … */
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+  --color-markets: var(--markets);
+  --color-family: var(--family);
 
-  --color-cy: #5eead4;   /* accent · cool mint (interaction, focus, selection) */
-  --color-bl: #7cb4ff;   /* information */
-  --color-am: #f5b553;   /* attention / research caution */
-  --color-vi: #b4a7f5;   /* research / historical simulation */
-  --color-up: #6ee7a8;   /* gains */
-  --color-dn: #ff6b6b;   /* risk, losses, destructive */
+  /* Legacy aliases used throughout the components — all resolve to the official tokens. */
+  --color-ink-950: var(--bg);
+  --color-ink-900: var(--bg);
+  --color-ink-850: var(--panel);
+  --color-ink-800: var(--panel);
+  --color-ink-700: var(--raised);
+  --color-ink-600: var(--border);
+  --color-ink-500: #2e3843;
+  --color-ink-400: var(--muted);  /* non-text and disabled only: 3.9:1 on panels is below AA for text */
+  --color-ink-300: var(--text-3); /* tertiary text */
+  --color-ink-200: var(--text-2); /* secondary text */
+  --color-ink-100: var(--text);   /* primary text */
+
+  --color-cy: var(--brand);       /* interaction, focus, selection */
+  --color-bl: var(--markets);     /* markets / information */
+  --color-am: var(--warning);     /* attention, research caution, paper-trading reminders */
+  --color-vi: var(--family);      /* strategy families / historical simulation */
+  --color-up: var(--positive);    /* gains, passed checks */
+  --color-dn: var(--negative);    /* risk, losses, destructive */
 
   /* type scale */
   --text-display: 34px;
@@ -51,11 +67,36 @@
 
 :root {
   color-scheme: dark;
-  --surface-1: #11161b;
-  --surface-2: rgba(25, 31, 39, 0.9);
+  /* ── Official SIGNAL tokens ── */
+  --bg: #0b0e11;        /* background */
+  --panel: #12161b;     /* panels */
+  --raised: #1a1f26;    /* raised surfaces, menus, inputs on panels */
+  --border: #232a33;    /* borders */
+  --text: #e6eaef;      /* primary text      15.0:1 on panel */
+  --text-2: #9aa4b2;    /* secondary text     7.2:1 on panel */
+  --muted: #6b7584;     /* muted: non-text, disabled, large type only (3.9:1) */
+  --brand: #5ee6d0;     /* brand teal */
+  --positive: #3dd68c;
+  --negative: #f2555a;
+  --warning: #f5a524;
+  --markets: #5b9bff;
+  --family: #a78bfa;    /* strategy families */
+  /* Derived (not in the official list): tertiary text that still meets WCAG AA (5.5:1 on panel). */
+  --text-3: #848e9c;
+  --grid: #2b3440;      /* derived: chart gridlines */
+
+  --surface-1: var(--panel);
+  --surface-2: var(--raised);
   --hairline: rgba(255, 255, 255, 0.065);
   --hairline-strong: rgba(255, 255, 255, 0.11);
 }
+
+/* Price-colour convention preference. Default: green up, red down. Some markets use the reverse. */
+:root[data-updown="red-up"] {
+  --positive: #f2555a;
+  --negative: #3dd68c;
+}
+
 
 html,
 body,
@@ -65,8 +106,8 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-ink-950);
-  color: #eef2f6;
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
@@ -174,12 +215,34 @@ body {
 .stagger > *:nth-child(n + 7) { animation-delay: 240ms; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  :root:not([data-motion="full"]) *, :root:not([data-motion="full"]) *::before, :root:not([data-motion="full"]) *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
 }
+
+/* In-app "Reduce motion" preference behaves exactly like the OS setting. */
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Skip link: first focusable element, visible only when focused. */
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -48px;
+  z-index: 100;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--brand);
+  color: var(--bg);
+  font-weight: 600;
+}
+.skip-link:focus { top: 12px; }
 
 /* ── tables ─────────────────────────────────────────────────────────────── */
 table.data {
@@ -190,14 +253,12 @@ table.data th {
   text-align: left;
   font-size: 12px;
   font-weight: 500;
-  color: var(--color-ink-300);
+  color: var(--text-3);
   padding: 10px 14px;
   border-bottom: 1px solid var(--hairline);
   position: sticky;
   top: 0;
-  background: rgba(17, 22, 28, 0.94);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  background: var(--panel);
   white-space: nowrap;
   z-index: 1;
 }
@@ -218,7 +279,7 @@ table.data tbody tr:last-child td { border-bottom: 0; }
 input, select, textarea {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.09);
-  color: #eef2f6;
+  color: var(--text);
   border-radius: 10px;
   padding: 8px 11px;
   font-family: var(--font-sans);
@@ -230,19 +291,19 @@ input, select, textarea {
 }
 input:hover, select:hover, textarea:hover { background: rgba(255, 255, 255, 0.07); }
 input:focus, select:focus, textarea:focus {
-  border-color: rgba(94, 234, 212, 0.75);
-  box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.18);
+  border-color: color-mix(in srgb, var(--brand) 75%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
 }
 input::placeholder { color: var(--color-ink-300); }
-input[type="checkbox"] { accent-color: #5eead4; width: 16px; height: 16px; padding: 0; }
-input[type="range"] { accent-color: #5eead4; padding: 0; background: transparent; border: 0; box-shadow: none; }
-select option { background: #13181e; }
+input[type="checkbox"] { accent-color: var(--brand); width: 16px; height: 16px; padding: 0; }
+input[type="range"] { accent-color: var(--brand); padding: 0; background: transparent; border: 0; box-shadow: none; }
+select option { background: var(--raised); }
 
 button, a { -webkit-tap-highlight-color: transparent; }
 button { font-family: var(--font-sans); }
-:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.35); border-radius: 10px; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 10px; }
 
-::selection { background: rgba(94, 234, 212, 0.3); }
+::selection { background: color-mix(in srgb, var(--brand) 30%, transparent); }
 details > summary { list-style: none; }
 details > summary::-webkit-details-marker { display: none; }
 

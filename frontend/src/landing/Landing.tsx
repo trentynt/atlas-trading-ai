@@ -127,7 +127,7 @@ export function Landing() {
         <ol className="grid gap-x-10 gap-y-9 sm:grid-cols-2 lg:grid-cols-3">
           {STEPS.map(([t, b, who], i) => (
             <li key={t} className="border-t border-white/[0.08] pt-5">
-              <div className="flex items-center justify-between"><span className="num text-[13px] text-cy">0{i + 1}</span><span className="text-[12.5px] text-ink-400">{who}</span></div>
+              <div className="flex items-center justify-between"><span className="num text-[13px] text-cy">0{i + 1}</span><span className="text-[12.5px] text-ink-300">{who}</span></div>
               <h3 className="mt-3 text-[17px] font-semibold text-white">{t}</h3>
               <p className="mt-1.5 text-[14.5px] leading-relaxed text-ink-300">{b}</p>
             </li>
@@ -194,7 +194,7 @@ export function Landing() {
       <Waitlist />
 
       <footer className="border-t border-white/[0.06]">
-        <div className="mx-auto flex max-w-[1180px] flex-wrap items-start justify-between gap-6 px-5 py-10 text-[13px] text-ink-400">
+        <div className="mx-auto flex max-w-[1180px] flex-wrap items-start justify-between gap-6 px-5 py-10 text-[13px] text-ink-300">
           <div className="max-w-[560px] space-y-2">
             <Logo />
             <p>SIGNAL is a provisional name pending trademark clearance. Research and paper-trading software only — not investment advice, not a broker, and not an offer to buy or sell any financial instrument.</p>
@@ -248,7 +248,7 @@ function Waitlist() {
                 <button type="submit" disabled={state === 'sending'} className="h-12 rounded-[12px] bg-cy px-6 text-[15px] font-semibold text-[#06231e] hover:bg-[#7ff0de] disabled:opacity-60">{state === 'sending' ? 'Joining…' : 'Join the beta'}</button>
               </div>
               <fieldset>
-                <legend className="mb-2 text-[13.5px] text-ink-200">What do you trade? <span className="text-ink-400">(optional)</span></legend>
+                <legend className="mb-2 text-[13.5px] text-ink-200">What do you trade? <span className="text-ink-300">(optional)</span></legend>
                 <div className="flex flex-wrap gap-2">
                   {MARKETS.map(([v, l]) => {
                     const on = markets.includes(v)
@@ -258,13 +258,13 @@ function Waitlist() {
                 </div>
               </fieldset>
               <label className="block">
-                <span className="mb-2 block text-[13.5px] text-ink-200">Trading experience <span className="text-ink-400">(optional)</span></span>
+                <span className="mb-2 block text-[13.5px] text-ink-200">Trading experience <span className="text-ink-300">(optional)</span></span>
                 <select value={experience} onChange={(e) => setExperience(e.target.value)} className="w-full !py-2.5">
                   <option value="">Prefer not to say</option><option value="new">New to trading</option><option value="intermediate">Some experience</option><option value="advanced">Advanced</option><option value="professional">Professional</option>
                 </select>
               </label>
               {state === 'error' && <p role="alert" className="text-[14px] text-dn">{error}</p>}
-              <p className="text-[12.5px] leading-relaxed text-ink-400">We use your email only to contact you about the beta. In this preview build, sign-ups are stored in the SIGNAL database on the server you’re visiting — nothing is sent to third parties.</p>
+              <p className="text-[12.5px] leading-relaxed text-ink-300">We use your email only to contact you about the beta. In this preview build, sign-ups are stored in the SIGNAL database on the server you’re visiting — nothing is sent to third parties.</p>
             </form>
           )}
         </div>

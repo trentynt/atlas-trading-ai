@@ -66,7 +66,7 @@ export function ForecastView({ go }: ViewProps) {
         <>
           <div className="grid grid-cols-12 gap-5">
             <Panel className="col-span-12 xl:col-span-8" title={`${sym} · ${f.name}`} tag={<Badge tone="vi">Forecast, not observed</Badge>}
-              right={<Legend items={[{ label: 'Observed', color: '#eef2f6' }, { label: 'Central estimate', color: SERIES[2], dashed: true }, { label: '50 / 80 / 95% ranges', color: `${SERIES[2]}77` }]} />}>
+              right={<Legend items={[{ label: 'Observed', color: 'var(--text)' }, { label: 'Central estimate', color: SERIES[2], dashed: true }, { label: '50 / 80 / 95% ranges', color: `${SERIES[2]}77` }]} />}>
               <div className={pending ? 'opacity-60 transition-opacity' : 'transition-opacity'}><FanChart history={out.history} path={f.path} color={SERIES[2]} height={380} decimals={dec} /></div>
             </Panel>
             <Panel className="col-span-12 xl:col-span-4" title="What this says">
@@ -104,7 +104,7 @@ export function ForecastView({ go }: ViewProps) {
               <p className="px-5 pt-3 text-[12.5px] leading-relaxed text-ink-300">For most liquid markets, beating “no change” consistently is genuinely hard — a model that matches it is doing its job honestly.</p>
             </Panel>
             <Panel className="col-span-12 xl:col-span-5" title="Are the ranges honest?" subtitle="How often each stated range actually contained the outcome. On the diagonal = well calibrated; below = overconfident.">
-              <Calibration rows={ev.models.map((m: any, i: number) => ({ label: m.name, color: m.model === model ? SERIES[2] : ['#4a5562', '#5b6673', '#6c7784', '#7f8a97'][i % 4], coverage: m.coverage }))} />
+              <Calibration rows={ev.models.map((m: any, i: number) => ({ label: m.name, color: m.model === model ? SERIES[2] : ['var(--muted)', 'var(--text-3)', 'var(--text-2)', 'var(--muted)'][i % 4], coverage: m.coverage }))} />
             </Panel>
           </div>
 
@@ -114,14 +114,14 @@ export function ForecastView({ go }: ViewProps) {
                 <thead><tr><th>Model</th><th className="!text-right">Calm markets</th><th className="!text-right">Normal</th><th className="!text-right">Volatile</th></tr></thead>
                 <tbody>{ev.models.map((m: any) => (
                   <tr key={m.model}><td className="text-white">{m.name}</td>
-                    {['low_vol', 'normal_vol', 'high_vol'].map((g) => <td key={g} className="text-right">{m.by_regime[g] ? <>{num(m.by_regime[g].mae_pct, 2)}% <span className="text-ink-400">({m.by_regime[g].n})</span></> : '—'}</td>)}
+                    {['low_vol', 'normal_vol', 'high_vol'].map((g) => <td key={g} className="text-right">{m.by_regime[g] ? <>{num(m.by_regime[g].mae_pct, 2)}% <span className="text-ink-300">({m.by_regime[g].n})</span></> : '—'}</td>)}
                   </tr>
                 ))}</tbody>
               </table>
             </div>
             <p className="mt-3 text-[12.5px] text-ink-300">Typical error at the horizon, split by the volatility regime when each forecast was made. Errors are larger in volatile markets for every model.</p>
           </Disclosure>
-          <p className="text-[12.5px] text-ink-400">{out.disclaimer} Want to act on a view? <button onClick={() => go('strategy', { sym: symToParam(sym) })} className="text-cy hover:underline">Test a strategy on {sym}</button> — every idea is validated before it can paper-trade.</p>
+          <p className="text-[12.5px] text-ink-300">{out.disclaimer} Want to act on a view? <button onClick={() => go('strategy', { sym: symToParam(sym) })} className="text-cy hover:underline">Test a strategy on {sym}</button> — every idea is validated before it can paper-trade.</p>
         </>
       )}
     </div>

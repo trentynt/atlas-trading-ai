@@ -248,7 +248,7 @@ function Validation({ ev, rules, onResearch }: { ev: any; rules?: Record<string,
             <div className="text-[12px] text-ink-300">{shortDate(ev.splits[k][0])} {ev.splits[k][0].slice(0, 4)} – {shortDate(ev.splits[k][1])} {ev.splits[k][1].slice(0, 4)}</div>
             <div className={`num mt-2 text-[22px] ${tone(ev[k].total_return)}`}>{pct(ev[k].total_return, 1)}</div>
             <div className="text-[12px] text-ink-300">Sharpe {num(ev[k].sharpe)} · {ev[k].num_trades} trades</div>
-            <div className="mt-1 text-[11.5px] text-ink-400">{note}</div>
+            <div className="mt-1 text-[11.5px] text-ink-300">{note}</div>
           </div>
         ))}
       </div>
@@ -266,7 +266,7 @@ function Validation({ ev, rules, onResearch }: { ev: any; rules?: Record<string,
                   <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">{ok ? <path d="m4 8.5 2.5 2.5L12 5" /> : <path d="M5 5l6 6M11 5l-6 6" />}</svg>
                 </span>
                 <span className="flex-1 text-[13.5px] text-ink-100">{label}</span>
-                <span className="text-right text-[12.5px]"><span className="tnum text-ink-100">{value}</span> <span className="text-ink-400">· {need}</span></span>
+                <span className="text-right text-[12.5px]"><span className="tnum text-ink-100">{value}</span> <span className="text-ink-300">· {need}</span></span>
               </li>
             ))}
           </ul>

@@ -106,72 +106,30 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
         </div>
       </section>
       {cycle.error && <Notice tone="dn" title="Couldn't start research">{cycle.error}</Notice>}
-      <AwayCard go={go} />
-
-      {/* network + side column */}
+      {/* what needs you, and what happened */}
       <div className="grid grid-cols-12 gap-5">
-        <Panel className="rise col-span-12 xl:col-span-8" title="Your research network"
-          subtitle={graph.data ? `${graph.data.nodes.length} entities and ${graph.data.edges.length} recorded relationships from your research database. Light travels only when something actually happens.` : 'Loading the research database…'}
-          bodyClass="!p-0">
-          <div className="relative">
-            {graph.error ? <div className="p-5"><Notice tone="dn">{graph.error}</Notice></div>
-              : <NeuralGraph data={graph.data} onSelect={setSel} selected={sel?.id ?? null} height={560} />}
-            <div className="pointer-events-none absolute bottom-3 left-5 flex max-w-[calc(100%-140px)] flex-wrap gap-x-3.5 gap-y-1 text-[12px] text-ink-300">
-              {([['#5eead4', 'Agents'], ['#7cb4ff', 'Markets'], ['#b4a7f5', 'Strategy families'], ['#6ee7a8', 'Survived'], ['#f5b553', 'Awaiting confirmation'], ['#ff6b6b', 'Rejected'], ['#f5b553', 'Paper trading'] ] as const).map(([col, l]) => (
-                <span key={l} className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: col }} />{l}</span>
+        <Panel className="col-span-12 lg:col-span-5" title="Needs your attention" right={attention.length ? <Badge>{attention.length}</Badge> : undefined}>
+          {!o ? <Loading /> : attention.length === 0 ? (
+            <EmptyState title="All clear" icon={<svg viewBox="0 0 20 20" className="h-5 w-5 text-up" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m5 10 3.5 3.5L15 7" strokeLinecap="round" strokeLinejoin="round" /></svg>}>Nothing needs you right now.</EmptyState>
+          ) : (
+            <ul className="stagger -mx-1 space-y-1">
+              {attention.slice(0, 5).map((a) => (
+                <li key={a.title}>
+                  <button onClick={a.action?.[1]} className="group flex w-full items-start gap-3 rounded-[12px] px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.04]">
+                    <StatusDot tone={a.tone} pulse={a.tone === 'cy'} />
+                    <span className="-mt-[5px] min-w-0 flex-1">
+                      <span className="block text-[13.5px] font-medium text-white">{a.title}</span>
+                      <span className="block text-[12.5px] leading-snug text-ink-300">{a.body}</span>
+                    </span>
+                    {a.action && <span className="-mt-[3px] shrink-0 text-[12.5px] font-medium text-cy opacity-80 group-hover:opacity-100">{a.action[0]} →</span>}
+                  </button>
+                </li>
               ))}
-            </div>
-          </div>
+            </ul>
+          )}
         </Panel>
-
-        <div className="col-span-12 flex flex-col gap-5 xl:col-span-4">
-          <Panel className="rise flex-1" title="Needs your attention" right={attention.length ? <Badge>{attention.length}</Badge> : undefined}>
-            {!o ? <Loading /> : attention.length === 0 ? (
-              <EmptyState title="All clear" icon={<svg viewBox="0 0 20 20" className="h-5 w-5 text-up" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m5 10 3.5 3.5L15 7" strokeLinecap="round" strokeLinejoin="round" /></svg>}>Nothing needs you right now.</EmptyState>
-            ) : (
-              <ul className="stagger -mx-1 space-y-1">
-                {attention.slice(0, 5).map((a) => (
-                  <li key={a.title}>
-                    <button onClick={a.action?.[1]} className="group flex w-full items-start gap-3 rounded-[12px] px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.04]">
-                      <StatusDot tone={a.tone} pulse={a.tone === 'cy'} />
-                      <span className="-mt-[5px] min-w-0 flex-1">
-                        <span className="block text-[13.5px] font-medium text-white">{a.title}</span>
-                        <span className="block text-[12.5px] leading-snug text-ink-300">{a.body}</span>
-                      </span>
-                      {a.action && <span className="-mt-[3px] shrink-0 text-[12.5px] font-medium text-cy opacity-80 group-hover:opacity-100">{a.action[0]} →</span>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-        </div>
+        <div className="col-span-12 lg:col-span-7"><AwayCard go={go} /></div>
       </div>
-
-      {/* markets */}
-      <section>
-        <SectionTitle title="Your markets" action={['All markets', () => go('markets')]} note="Crypto: historical daily candles, not live. Forex: Daily ECB reference rates — not live forex quotes." />
-        <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
-          {(markets.data ?? Array.from({ length: 5 }, () => null)).map((m, i) => m ? (
-            <button key={m.symbol} onClick={() => go('markets', { sym: symToParam(m.symbol) })}
-              className="panel group px-5 pt-4 pb-3 text-left outline outline-1 outline-transparent transition-[outline-color] hover:outline-white/[0.12]">
-              <div className="flex items-center justify-between">
-                <span className="text-[14.5px] font-semibold text-white">{m.symbol}</span>
-                <span className="text-[12px] text-ink-300">{m.asset_class === 'fx' ? 'Forex' : 'Crypto'}</span>
-              </div>
-              <div className="mt-1.5 flex items-baseline gap-2">
-                <span className="num text-[22px] text-white">{price(m.last_close, m.price_decimals)}</span>
-                <span className={`num text-[13px] ${tone(m.change_1d)}`}>{pct(m.change_1d)}</span>
-              </div>
-              <div className="mt-2 -mx-1"><Sparkline values={bars[m.symbol] ?? []} color={(bars[m.symbol]?.at(-1) ?? 0) >= (bars[m.symbol]?.[0] ?? 0) ? UP : DN} height={40} /></div>
-              <div className="mt-2 flex items-center justify-between text-[12px] text-ink-300">
-                <span className="truncate">{regimes[m.symbol] ? REGIME_PLAIN[regimes[m.symbol]!.trend] : '\u00a0'}{regimes[m.symbol]?.vol === 'high_vol' ? ' · volatile' : ''}</span>
-                <span className={`shrink-0 pl-2 ${m.is_stale ? 'text-am' : ''}`}>{m.is_stale ? 'Stale' : shortDate(m.last_ts)}</span>
-              </div>
-            </button>
-          ) : <div key={i} className="panel h-[168px] p-5"><Loading /></div>)}
-        </div>
-      </section>
 
       {/* findings + team */}
       <div className="grid grid-cols-12 gap-5">
@@ -215,6 +173,24 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
         </Panel>
       </div>
 
+      {/* research network: the operation at a glance, below the work itself */}
+      <div className="grid grid-cols-12 gap-5">
+        <Panel className="col-span-12" title="Your research network"
+          subtitle={graph.data ? `${graph.data.nodes.length} entities and ${graph.data.edges.length} recorded relationships from your research database. Light travels only when something actually happens.` : 'Loading the research database…'}
+          bodyClass="!p-0">
+          <div className="relative">
+            {graph.error ? <div className="p-5"><Notice tone="dn">{graph.error}</Notice></div>
+              : <NeuralGraph data={graph.data} onSelect={setSel} selected={sel?.id ?? null} height={520} />}
+            <div className="pointer-events-none absolute bottom-3 left-5 flex max-w-[calc(100%-140px)] flex-wrap gap-x-3.5 gap-y-1 text-[12px] text-ink-300">
+              {([['var(--brand)', 'Agents'], ['var(--markets)', 'Markets'], ['var(--family)', 'Strategy families'], ['var(--positive)', 'Survived'], ['var(--warning)', 'Awaiting confirmation'], ['var(--negative)', 'Rejected'], ['var(--warning)', 'Paper trading'] ] as const).map(([col, l]) => (
+                <span key={l} className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: col }} />{l}</span>
+              ))}
+            </div>
+          </div>
+        </Panel>
+
+      </div>
+
       {/* portfolio + risk */}
       <div className="grid grid-cols-12 gap-5">
         <Panel className="col-span-12 lg:col-span-6" title="Paper portfolio" tag={<Badge tone="am">Simulated</Badge>} right={<Button small tone="ghost" onClick={() => go('portfolio')}>Open portfolio</Button>}>
@@ -249,6 +225,31 @@ export function CommandView({ go, overview: o, reloadOverview }: ViewProps) {
           )}
         </Panel>
       </div>
+
+      {/* markets */}
+      <section>
+        <SectionTitle title="Your markets" action={['All markets', () => go('markets')]} note="Crypto: historical daily candles, not live. Forex: Daily ECB reference rates — not live forex quotes." />
+        <div className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+          {(markets.data ?? Array.from({ length: 5 }, () => null)).map((m, i) => m ? (
+            <button key={m.symbol} onClick={() => go('markets', { sym: symToParam(m.symbol) })}
+              className="panel group px-5 pt-4 pb-3 text-left outline outline-1 outline-transparent transition-[outline-color] hover:outline-white/[0.12]">
+              <div className="flex items-center justify-between">
+                <span className="text-[14.5px] font-semibold text-white">{m.symbol}</span>
+                <span className="text-[12px] text-ink-300">{m.asset_class === 'fx' ? 'Forex' : 'Crypto'}</span>
+              </div>
+              <div className="mt-1.5 flex items-baseline gap-2">
+                <span className="num text-[22px] text-white">{price(m.last_close, m.price_decimals)}</span>
+                <span className={`num text-[13px] ${tone(m.change_1d)}`}>{pct(m.change_1d)}</span>
+              </div>
+              <div className="mt-2 -mx-1"><Sparkline values={bars[m.symbol] ?? []} color={(bars[m.symbol]?.at(-1) ?? 0) >= (bars[m.symbol]?.[0] ?? 0) ? UP : DN} height={40} /></div>
+              <div className="mt-2 flex items-center justify-between text-[12px] text-ink-300">
+                <span className="truncate">{regimes[m.symbol] ? REGIME_PLAIN[regimes[m.symbol]!.trend] : '\u00a0'}{regimes[m.symbol]?.vol === 'high_vol' ? ' · volatile' : ''}</span>
+                <span className={`shrink-0 pl-2 ${m.is_stale ? 'text-am' : ''}`}>{m.is_stale ? 'Stale' : shortDate(m.last_ts)}</span>
+              </div>
+            </button>
+          ) : <div key={i} className="panel h-[168px] p-5"><Loading /></div>)}
+        </div>
+      </section>
 
       <NodeInspector node={sel} onClose={() => setSel(null)} go={go} />
     </div>

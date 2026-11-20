@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { PreferencesDrawer } from './components/Preferences'
 import { StatusDot } from './components/ui'
 import { api, useApi } from './lib/api'
 import { EventProvider, useEvents, useEventTrigger } from './lib/events'
@@ -34,9 +35,9 @@ export const NAV: { key: ViewKey; label: string; hint: string; group: 'Home' | '
 
 function Logo({ size = 34 }: { size?: number }) {
   return (
-    <div className="flex items-center justify-center rounded-[10px] bg-[linear-gradient(145deg,#1d2a2d,#0f1517)] ring-1 ring-white/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" style={{ width: size, height: size }} aria-hidden>
+    <div className="flex items-center justify-center rounded-[10px] bg-raised ring-1 ring-border" style={{ width: size, height: size }} aria-hidden>
       <svg viewBox="0 0 24 24" style={{ width: size * 0.6, height: size * 0.6 }} fill="none" strokeLinecap="round">
-        <path d="M3 13.5h3.2l2.3-6 3.2 11 2.6-8.2 1.6 3.2H21" stroke="#5eead4" strokeWidth="1.9" strokeLinejoin="round" />
+        <path d="M3 13.5h3.2l2.3-6 3.2 11 2.6-8.2 1.6 3.2H21" stroke="var(--brand)" strokeWidth="1.9" strokeLinejoin="round" />
       </svg>
     </div>
   )
@@ -46,6 +47,7 @@ function Shell() {
   const { view } = useRoute()
   const [search, setSearch] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
+  const [prefsOpen, setPrefsOpen] = useState(false)
   const ov = useApi<Overview>('/system/overview', { poll: 15000 })
   const searchMarkets = useApi<Market[]>('/markets', { poll: 120000 })
   const searchExps = useApi<Experiment[]>('/experiments?kind=hypothesis_test&limit=200', { poll: 60000 })
@@ -57,6 +59,7 @@ function Shell() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = /input|textarea|select/i.test((e.target as HTMLElement)?.tagName ?? '')
+      if (e.key === 'Escape') setMobileNav(false)
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearch((p) => !p) }
       else if (!typing && e.key === '/') { e.preventDefault(); setSearch(true) }
       else if (!typing && e.altKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); navigate(NAV[+e.key - 1].key) }
@@ -86,7 +89,7 @@ function Shell() {
       <div className="scroll-thin flex-1 overflow-y-auto px-3 pb-3">
         {(['Home', 'Research', 'Trading', 'System'] as const).map((g) => (
           <div key={g} className="mb-3">
-            {g !== 'Home' && <div className="px-2.5 pt-2 pb-1 text-[11.5px] font-medium text-ink-400">{g}</div>}
+            {g !== 'Home' && <div className="px-2.5 pt-2 pb-1 text-[11.5px] font-medium text-ink-300">{g}</div>}
             {NAV.filter((n) => n.group === g).map((n) => {
               const on = view === n.key
               return (
@@ -101,6 +104,10 @@ function Shell() {
           </div>
         ))}
       </div>
+      <button onClick={() => setPrefsOpen(true)} className="mx-3 mb-2 flex items-center gap-3 rounded-[10px] px-2.5 py-[7px] text-left text-[13.5px] text-ink-200 transition-colors hover:bg-white/[0.04] hover:text-white">
+        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 text-ink-300" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>
+        Display preferences
+      </button>
       <div className="mx-3 mb-4 rounded-[12px] bg-am/[0.07] px-3.5 py-3 ring-1 ring-inset ring-am/15">
         <div className="flex items-center gap-2 text-[12.5px] font-medium text-am"><StatusDot tone="am" />Paper trading only</div>
         <p className="mt-1 text-[12px] leading-snug text-ink-300">Simulated execution. SIGNAL has no broker connection and cannot move real money.</p>
@@ -110,11 +117,12 @@ function Shell() {
 
   return (
     <div className="flex h-full min-h-0">
+      <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus() }}>Skip to content</a>
       <nav aria-label="Workspaces" className="material hidden w-[236px] shrink-0 flex-col border-r border-white/[0.06] md:flex">{sidebar}</nav>
       {mobileNav && (
         <div className="fixed inset-0 z-40 md:hidden">
           <div className="scrim-in absolute inset-0 bg-black/50" onClick={() => setMobileNav(false)} />
-          <nav className="drawer-in absolute top-0 left-0 flex h-full w-[264px] flex-col border-r border-white/[0.08] bg-[rgba(12,15,19,0.98)]">{sidebar}</nav>
+          <nav aria-label="Workspaces" className="drawer-in absolute top-0 left-0 flex h-full w-[264px] flex-col border-r border-border bg-panel">{sidebar}</nav>
         </div>
       )}
 
@@ -143,12 +151,13 @@ function Shell() {
             Can't reach the SIGNAL research engine ({ov.error}). Start it with <code className="font-mono">make backend</code>, then <button className="underline" onClick={ov.reload}>retry</button>.
           </div>
         )}
-        <main ref={mainRef} className="scroll-thin min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 md:px-8 md:py-7">
+        <main ref={mainRef} id="main" tabIndex={-1} className="scroll-thin outline-none min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 md:px-8 md:py-7">
           <div key={view} className="fade-in mx-auto max-w-[1680px]">
             <Body go={go} overview={o} reloadOverview={ov.reload} />
           </div>
         </main>
       </div>
+      <PreferencesDrawer open={prefsOpen} onClose={() => setPrefsOpen(false)} />
       {search && <SearchPalette onClose={() => setSearch(false)} reload={ov.reload} markets={searchMarkets.data ?? []} exps={searchExps.data ?? []} />}
     </div>
   )
@@ -209,7 +218,7 @@ function SearchPalette({ onClose, reload, markets, exps }: { onClose: () => void
             lastGroup = a.group
             return (
               <div key={a.id}>
-                {head && <div className="px-3 pt-3 pb-1 text-[11.5px] font-medium text-ink-400">{head}</div>}
+                {head && <div className="px-3 pt-3 pb-1 text-[11.5px] font-medium text-ink-300">{head}</div>}
                 <button onMouseEnter={() => setSel(i)} onClick={() => exec(i)}
                   className={`flex w-full items-baseline justify-between gap-4 rounded-[11px] px-3 py-2.5 text-left transition-colors ${i === sel ? (a.danger ? 'bg-dn/[0.16]' : 'bg-white/[0.08]') : ''}`}>
                   <span className={`text-[14px] font-medium ${a.danger ? 'text-dn' : 'text-white'}`}>{a.label}</span>
@@ -219,7 +228,7 @@ function SearchPalette({ onClose, reload, markets, exps }: { onClose: () => void
             )
           })}
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-white/[0.06] px-5 py-2.5 text-[12px] text-ink-400">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-white/[0.06] px-5 py-2.5 text-[12px] text-ink-300">
           <span><kbd>↑</kbd> <kbd>↓</kbd> to move</span><span><kbd>↵</kbd> to open</span><span><kbd>⌥</kbd> <kbd>1–9</kbd> jump to workspace</span>
         </div>
       </div>

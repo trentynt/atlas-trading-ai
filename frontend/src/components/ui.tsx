@@ -8,10 +8,10 @@ import { createPortal } from 'react-dom'
 // Categorical series palette — validated (dataviz validate_palette.js, dark mode): lightness band, chroma,
 // CVD ΔE ≥ 16.7, normal-vision ΔE ≥ 21, contrast ≥ 3:1. Fixed order; never cycled.
 export const SERIES = ['#0f9cb4', '#c87d0e', '#9575ee', '#e2557a'] as const
-export const NEUTRAL = '#aab4c0' // benchmarks / reference lines
-export const UP = '#6ee7a8'
-export const DN = '#ff6b6b'
-export const ACCENT = '#5eead4'
+export const NEUTRAL = 'var(--text-2)' // benchmarks / reference lines
+export const UP = 'var(--positive)' // follows the price-colour preference
+export const DN = 'var(--negative)'
+export const ACCENT = 'var(--brand)'
 
 /* ── layout ──────────────────────────────────────────────────────────────── */
 
@@ -130,7 +130,7 @@ export function Button({ children, onClick, tone = 'default', disabled, small, t
 }) {
   const t = {
     default: 'bg-white/[0.07] text-ink-100 ring-1 ring-inset ring-white/[0.08] hover:bg-white/[0.11] hover:text-white',
-    primary: 'bg-cy text-[#06231e] font-semibold shadow-[0_1px_0_rgba(255,255,255,0.35)_inset] hover:bg-[#7ff0de]',
+    primary: 'bg-cy text-bg font-semibold hover:brightness-110',
     danger: 'bg-dn/[0.13] text-dn ring-1 ring-inset ring-dn/25 hover:bg-dn/[0.2]',
     ghost: 'bg-transparent text-cy hover:bg-cy/[0.08]',
     plain: 'bg-transparent text-ink-200 hover:bg-white/[0.06] hover:text-white',
@@ -198,7 +198,7 @@ export function ErrorBox({ error, onRetry }: { error: string | null | undefined;
   if (!error) return null
   return (
     <div role="alert" className="flex items-start gap-3 rounded-[12px] bg-dn/[0.1] px-4 py-3 text-[13px] leading-snug text-dn ring-1 ring-inset ring-dn/20">
-      <svg viewBox="0 0 20 20" className="mt-[1px] h-4 w-4 shrink-0" fill="currentColor"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm-.75 4h1.5v5h-1.5V6Zm0 6.5h1.5V14h-1.5v-1.5Z" /></svg>
+      <svg viewBox="0 0 20 20" className="mt-[1px] h-4 w-4 shrink-0" fill="currentColor" aria-hidden><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm-.75 4h1.5v5h-1.5V6Zm0 6.5h1.5V14h-1.5v-1.5Z" /></svg>
       <span className="flex-1">{error}</span>
       {onRetry && <button onClick={onRetry} className="font-medium underline-offset-2 hover:underline">Try again</button>}
     </div>
@@ -219,7 +219,7 @@ export function EmptyState({ title, children, action, icon }: { title: string; c
   return (
     <div className="flex h-full min-h-[140px] flex-col items-center justify-center px-6 py-8 text-center">
       <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.05] text-ink-300">
-        {icon ?? <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="12" cy="12" r="8" /><path d="M8.5 12h7" strokeLinecap="round" /></svg>}
+        {icon ?? <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="8" /><path d="M8.5 12h7" strokeLinecap="round" /></svg>}
       </div>
       <div className="text-[14px] font-medium text-white">{title}</div>
       {children && <div className="mt-1 max-w-[420px] text-[13px] leading-relaxed text-ink-300">{children}</div>}
@@ -235,7 +235,7 @@ export function Empty({ children }: { children: ReactNode }) {
 }
 
 export function Spinner({ size = 16 }: { size?: number }) {
-  return <svg viewBox="0 0 24 24" width={size} height={size} className="spin text-cy" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity=".2" strokeWidth="2.5" /><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg>
+  return <svg viewBox="0 0 24 24" width={size} height={size} className="spin text-cy" fill="none" role="img" aria-label="Working"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity=".2" strokeWidth="2.5" /><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg>
 }
 
 export function Skeleton({ className = 'h-4 w-full' }: { className?: string }) {
@@ -304,7 +304,7 @@ export function Disclosure({ title, children, defaultOpen = false, meta }: { tit
   return (
     <div className="rounded-[12px] ring-1 ring-inset ring-white/[0.06]">
       <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[13px] font-medium text-ink-100 hover:text-white">
-        <svg viewBox="0 0 16 16" className={`h-3.5 w-3.5 text-ink-300 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} fill="currentColor"><path d="M6 3.5 10.5 8 6 12.5V3.5Z" /></svg>
+        <svg viewBox="0 0 16 16" className={`h-3.5 w-3.5 text-ink-300 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} fill="currentColor" aria-hidden><path d="M6 3.5 10.5 8 6 12.5V3.5Z" /></svg>
         <span className="flex-1">{title}</span>
         {meta && <span className="text-[12px] font-normal text-ink-300">{meta}</span>}
       </button>
@@ -325,18 +325,42 @@ function useEscape(onClose: () => void) {
   }, [])
 }
 
+/** Move focus into an open overlay, keep Tab inside it, and return focus where it was on close. */
+export function useFocusTrap<T extends HTMLElement>(open: boolean) {
+  const ref = useRef<T>(null)
+  useEffect(() => {
+    if (!open) return
+    const prev = document.activeElement as HTMLElement | null
+    const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+    const items = () => (ref.current ? [...ref.current.querySelectorAll<HTMLElement>(sel)] : [])
+    const t = window.setTimeout(() => (items()[0] ?? ref.current)?.focus(), 0)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !ref.current) return
+      const f = items()
+      if (!f.length) return
+      if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus() }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => { window.clearTimeout(t); document.removeEventListener('keydown', onKey); prev?.focus?.() }
+  }, [open])
+  return ref
+}
+
 export function Drawer({ open, onClose, title, children, width = 520, footer }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; width?: number; footer?: ReactNode }) {
   useEscape(onClose)
+  const trap = useFocusTrap<HTMLElement>(open)
+  const titleId = useId()
   if (!open) return null
   return createPortal(
     <div className="fixed inset-0 z-50">
       <div className="scrim-in absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={onClose} />
-      <aside role="dialog" aria-modal="true" className="drawer-in absolute top-0 right-0 flex h-full flex-col border-l border-white/[0.08] bg-[rgba(16,20,26,0.96)] shadow-[-30px_0_80px_-20px_rgba(0,0,0,0.8)] backdrop-blur-2xl"
+      <aside ref={trap} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="drawer-in absolute top-0 right-0 flex h-full flex-col border-l border-border bg-raised shadow-[-30px_0_80px_-20px_rgba(0,0,0,0.8)]"
         style={{ width: `min(${width}px, 100vw)` }}>
         <header className="flex items-center justify-between gap-3 px-6 pt-5 pb-3">
-          <div className="min-w-0 text-[17px] font-semibold tracking-[-0.015em] text-white">{title}</div>
+          <div id={titleId} className="min-w-0 text-[17px] font-semibold tracking-[-0.015em] text-white">{title}</div>
           <button onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.06] text-ink-200 hover:bg-white/[0.12] hover:text-white">
-            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 4l8 8M12 4l-8 8" /></svg>
           </button>
         </header>
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-6 pb-6">{children}</div>
@@ -349,12 +373,14 @@ export function Drawer({ open, onClose, title, children, width = 520, footer }: 
 
 export function Dialog({ open, onClose, title, children, actions }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; actions?: ReactNode }) {
   useEscape(onClose)
+  const trap = useFocusTrap<HTMLDivElement>(open)
+  const titleId = useId()
   if (!open) return null
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
       <div className="scrim-in absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={onClose} />
-      <div role="alertdialog" aria-modal="true" className="dialog-in relative w-full max-w-[440px] rounded-[20px] border border-white/[0.09] bg-[rgba(22,27,34,0.97)] p-6 shadow-[0_40px_100px_-20px_rgba(0,0,0,0.85)]">
-        <div className="text-[17px] font-semibold tracking-[-0.015em] text-white">{title}</div>
+      <div ref={trap} role="alertdialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="dialog-in relative w-full max-w-[440px] rounded-[20px] border border-border bg-raised p-6 shadow-[0_40px_100px_-20px_rgba(0,0,0,0.85)]">
+        <div id={titleId} className="text-[17px] font-semibold tracking-[-0.015em] text-white">{title}</div>
         <div className="mt-2 text-[13.5px] leading-relaxed text-ink-200">{children}</div>
         {actions && <div className="mt-6 flex flex-wrap justify-end gap-2">{actions}</div>}
       </div>
