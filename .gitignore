@@ -9,8 +9,11 @@ backend/.env
 frontend/node_modules/
 frontend/dist/
 
-# Runtime data (SQLite DB, dataset snapshots) — regenerated from providers
-data/
+# Runtime data (SQLite DB, dataset snapshots) — regenerated from providers.
+# Anchored to the repo root with a leading slash: an unanchored "data/" also matched
+# backend/atlas/data/ (source code), which kept that package out of git.
+/data/*.db*
+/data/snapshots/
 
 # Editors / OS
 .DS_Store
