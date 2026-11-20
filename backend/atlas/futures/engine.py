@@ -57,6 +57,7 @@ class IntradayResult:
     position: pd.Series  # per bar, signed contracts
     metrics: dict
     config: dict
+    state: dict | None = None  # open_end runs only: position, pending order and open trade at the last bar
 
 
 def _ts(t: pd.Timestamp) -> str:
@@ -64,7 +65,9 @@ def _ts(t: pd.Timestamp) -> str:
 
 
 def run_intraday(df: pd.DataFrame, signals: pd.Series, cfg: IntradayConfig,
-                 contract: FuturesContract = MNQ) -> IntradayResult:
+                 contract: FuturesContract = MNQ, open_end: bool = False) -> IntradayResult:
+    """open_end=True: the data stops mid-session (bar-by-bar practice). The last bar is NOT treated as
+    the session close, nothing is force-closed, and the live state is returned instead."""
     if df.empty:
         raise ValueError("no bars")
     if not df.index.is_monotonic_increasing:
@@ -75,7 +78,7 @@ def run_intraday(df: pd.DataFrame, signals: pd.Series, cfg: IntradayConfig,
     day = np.asarray(local.date.astype(str))
     hm = np.asarray(local.strftime("%H:%M"))
     n = len(df)
-    last_of_day = np.r_[day[1:] != day[:-1], True]
+    last_of_day = np.r_[day[1:] != day[:-1], not open_end]
     tick, mult, costs = contract.tick_size, contract.multiplier, cfg.costs
 
     pos = 0  # signed contracts
@@ -179,7 +182,14 @@ def run_intraday(df: pd.DataFrame, signals: pd.Series, cfg: IntradayConfig,
         if want != pos:
             pending = (want, "signal")
 
-    if pos != 0:  # data ended mid-session
+    state = None
+    if open_end:
+        state = {"position": pos, "entry_price": entry_px if pos else None, "stop": stop, "target": target,
+                 "pending": {"position": pending[0], "reason": pending[1]} if pending else None,
+                 "open_trade": {k: v for k, v in trade.items() if not k.startswith("_")} if trade else None,
+                 "open_pnl": round((c[-1] - entry_px) * np.sign(pos) * abs(pos) * mult, 2) if pos else 0.0,
+                 "loss_limit_hit": locked}
+    elif pos != 0:  # data ended mid-session
         execute(n - 1, 0, c[-1], "end_of_data", False)
         eq[-1] = cash
 
@@ -194,7 +204,7 @@ def run_intraday(df: pd.DataFrame, signals: pd.Series, cfg: IntradayConfig,
                      "stopped_by_loss_limit": day_rows[d].get("stopped_by_loss_limit")})
     daily = pd.DataFrame(rows).set_index("session")
     return IntradayResult(trades=trades, daily=daily, equity=equity, position=pd.Series(pos_s, index=df.index),
-                          metrics=intraday_metrics(daily, trades, cfg.initial_equity), config=cfg.to_dict())
+                          metrics=intraday_metrics(daily, trades, cfg.initial_equity), config=cfg.to_dict(), state=state)
 
 
 def intraday_metrics(daily: pd.DataFrame, trades: list[dict], initial: float) -> dict:

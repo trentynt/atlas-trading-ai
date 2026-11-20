@@ -84,7 +84,8 @@ def run(db, symbol: str = PROXY_SYMBOL) -> dict:
     store = MinuteStore(db)
     res = evaluate(store.load(symbol), store.load_daily(symbol))
     res.update(symbol=symbol, proxy_for="MNQ", ran_at=utcnow())
-    db.kv_set(f"data_gate:{symbol}", res)
+    if res.get("checks"):  # an empty store is "not run", never recorded as a failure
+        db.kv_set(f"data_gate:{symbol}", res)
     return res
 
 
