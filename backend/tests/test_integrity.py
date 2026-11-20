@@ -196,3 +196,32 @@ def test_revalidation_handles_missing_snapshots_and_is_idempotent(settings, prov
     assert n >= 1
     again = revalidate(sv, 1)
     assert again["legacy_hypotheses"] == 0 and sv.registry.counts(1)["total"] == n  # idempotent: no duplicate trials
+
+
+def _fill(reg, symbol, n, seed=0, kind="variant"):
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2020-01-01", periods=120, freq="D", tz="UTC")
+    for i in range(n):
+        reg.register(user_id=1, kind=kind, symbol=symbol, strategy="s", params={"i": i}, dataset_version="v",
+                     window=("2020-01-01", "2020-04-30"), returns=pd.Series(rng.normal(0, 0.01, 120), index=idx))
+
+
+def test_attempts_beyond_correlation_window_still_count(tmp_path):
+    reg = TrialRegistry(Database(tmp_path / "t.db"))
+    _fill(reg, "BTC/USD", 340)
+    f = reg.family_stats(1, "BTC/USD")
+    assert f["n_raw"] == 340 and f["n_research"] == 340
+    assert f["n_beyond_window"] == 40  # older than the 300 used for correlations: counted as independent
+    assert f["n_eff"] >= 40 and f["n_eff"] <= 340
+
+
+def test_global_count_is_at_least_any_market(tmp_path):
+    reg = TrialRegistry(Database(tmp_path / "t.db"))
+    _fill(reg, "BTC/USD", 30, seed=1)
+    _fill(reg, "ETH/USD", 50, seed=2)
+    g = reg.global_stats(1)
+    a, b = reg.family_stats(1, "BTC/USD"), reg.family_stats(1, "ETH/USD")
+    assert g["n_raw"] == 80 and g["markets"] == 2
+    assert g["n_eff"] == pytest.approx(a["n_eff"] + b["n_eff"]) and g["n_eff"] > max(a["n_eff"], b["n_eff"])
+    # More effective trials → higher luck bar → stricter test
+    assert expected_max_sharpe(int(g["n_eff"]), 1.0) > expected_max_sharpe(int(b["n_eff"]), 1.0)

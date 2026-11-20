@@ -1,11 +1,9 @@
-# SIGNAL — your personal AI trading research company
+# ATLAS — personal trading research and paper-trading tool
 
-*Working brand **SIGNAL** (provisional, pending trademark clearance). Engineering codename **ATLAS**.*
-
-SIGNAL (codename ATLAS) is a research operating system for systematic trading hypotheses: real market data, an
-event-driven backtester with walk-forward evaluation, deterministic research agents that generate,
-test and criticise strategies, a forecasting lab, and a **paper-only** execution engine behind a
-backend-enforced risk layer.
+A personal tool (not a product) for learning to research and paper-trade Micro Nasdaq-100 futures (MNQ):
+real market data, a backtester with walk-forward evaluation and deflated Sharpe, deterministic research
+agents, and a **paper-only** broker behind a risk layer. Concepts and design choices are explained in
+[`docs/LEARN.md`](docs/LEARN.md).
 
 > **Paper only.** There is no broker integration and no code path that places real orders.
 > Every backtest is a historical simulation; passing the research critic is not evidence of
@@ -28,12 +26,11 @@ research network populates as datasets, features and experiments appear.
 | Page | URL (port 5173) |
 |---|---|
 | The app — nine workspaces | `/#overview`, `/#markets`, `/#research`, `/#strategies`, `/#forecasts`, `/#discoveries`, `/#portfolio`, `/#risk`, `/#activity` |
-| Landing page + private-beta sign-up | `/landing.html` |
 
 Keyboard: `⌘K` / `Ctrl+K` or `/` opens search (workspaces, instruments, discoveries, actions); `Alt+1…9` jumps between workspaces.
 
 ```bash
-make test       # 31 backend tests (offline, deterministic fake providers)
+make test       # backend tests (offline, deterministic fake providers)
 make build      # tsc + lint + production build of the frontend
 ```
 
@@ -65,16 +62,3 @@ export ANTHROPIC_API_KEY=...      # never commit this
 ```
 
 The LLM only rewrites already-computed numbers as prose; it makes no research or trading decisions.
-
-## Legacy files
-
-`app.py` (Streamlit) and `index.html` (ATLAS V6 single-page prototype) are the previous versions,
-kept for reference. They are not used by the new platform.
-
-## Marketing assets
-
-Genuine captures of the running product (no mock data) live in `marketing/`:
-
-- `marketing/screenshots/` — 3200×2000 desktop PNGs and a 1170×2532 mobile PNG.
-- `marketing/recordings/` — 1920×1080 H.264 MP4 clips of real interactions (one clip runs a real research cycle).
-- `marketing/tools/` — the Playwright scripts that produced them. To re-film: `npm i playwright && npx playwright install --with-deps chromium`, start both servers, then `node marketing/tools/market.mjs marketing all`.

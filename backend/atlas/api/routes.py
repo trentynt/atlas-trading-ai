@@ -697,27 +697,6 @@ def risk_status(request: Request):
             "strategy_exposure": {k: v / eq for k, v in by_strat.items()},
             "correlation": {"symbols": list(corr.columns), "matrix": [[_n(v) for v in row] for row in corr.to_numpy()] if not corr.empty else []}}
 
-
-# ---------------- private beta waitlist ----------------
-@router.post("/waitlist")
-def waitlist_join(request: Request, body: S.WaitlistRequest):
-    """Record beta interest. Idempotent per email; stores only what the visitor submits (no IP, no tracking)."""
-    sv = svc(request)
-    email = body.email.strip().lower()
-    existing = sv.db.one("SELECT id FROM waitlist WHERE email=?", (email,))
-    if existing:
-        return {"status": "already_registered"}
-    sv.db.insert("waitlist", {"created_at": utcnow(), "email": email, "markets_json": dumps(sorted(set(body.markets))),
-                              "experience": body.experience, "source": body.source})
-    sv.bus.emit("system", "New private-beta sign-up", source="waitlist")
-    return {"status": "registered"}
-
-
-@router.get("/waitlist/count")
-def waitlist_count(request: Request):
-    return {"count": svc(request).db.one("SELECT COUNT(*) n FROM waitlist")["n"]}
-
-
 # ---------------- computation graph ----------------
 @router.get("/graph")
 def graph(request: Request, max_experiments: int = Query(800, le=5000)):

@@ -141,18 +141,6 @@ def test_autonomy_config_validation(client):
     st = client.put("/api/autonomy", json={"enabled": True, "schedule": "daily", "daily_time": "02:30", "timezone": "America/Toronto"}).json()
     assert st["config"]["enabled"] is True and st["state"] == "on" and st["next_run_at"] and "Codespace" in st["note"]
 
-
-def test_waitlist_signup_validation_and_idempotency(client):
-    assert client.get("/api/waitlist/count").json()["count"] == 0
-    ok = client.post("/api/waitlist", json={"email": "Trader@Example.com", "markets": ["crypto", "forex"], "experience": "intermediate"})
-    assert ok.status_code == 200 and ok.json()["status"] == "registered"
-    again = client.post("/api/waitlist", json={"email": "trader@example.com"})
-    assert again.json()["status"] == "already_registered"
-    assert client.get("/api/waitlist/count").json()["count"] == 1
-    assert client.post("/api/waitlist", json={"email": "not-an-email"}).status_code == 422
-    assert client.post("/api/waitlist", json={"email": "a@b.co", "markets": ["lottery"]}).status_code == 422
-
-
 def test_autonomy_controls_history_and_away_report(client):
     wait_job(client, client.post("/api/markets/refresh", json={}).json()["job_id"])
     st = client.post("/api/autonomy/enable").json()

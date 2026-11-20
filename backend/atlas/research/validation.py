@@ -96,8 +96,23 @@ class Validator:
         fam = self.reg.family_stats(user_id, symbol)
         ppy = get_instrument(symbol).periods_per_year
         test_r = ev["_test_result"].returns
-        sr0 = expected_max_sharpe(max(2, int(round(fam["n_eff"]))), fam["sr_var"]) if fam["sr_var"] > 0 else 0.0
-        dsr = deflated_sharpe(test_r, max(2, int(round(fam["n_eff"]))), fam["sr_var"]) if fam["sr_var"] > 0 else probabilistic_sharpe(test_r)
+        glob = self.reg.global_stats(user_id)
+
+        def _dsr(f):
+            n = max(2, int(round(f["n_eff"])))
+            if f["sr_var"] <= 0:
+                return probabilistic_sharpe(test_r), 0.0
+            return deflated_sharpe(test_r, n, f["sr_var"]), expected_max_sharpe(n, f["sr_var"])
+
+        dsr_m, sr0_m = _dsr(fam)
+        dsr_g, sr0_g = _dsr(glob)
+        # Pass/fail uses whichever count is stricter (lower deflated Sharpe).
+        strict_global = (dsr_g if dsr_g is not None else 1.0) < (dsr_m if dsr_m is not None else 1.0)
+        dsr, sr0 = (dsr_g, sr0_g) if strict_global else (dsr_m, sr0_m)
+        basis = (f"{glob['n_eff']:.1f} effective trials across all {glob['markets']} markets ({glob['n_raw']} attempts)" if strict_global
+                 else f"{fam['n_eff']:.1f} effective trials ({fam['n_raw']} recorded attempts on {symbol})")
+        fam = {**fam, "n_raw_global": glob["n_raw"], "n_eff_global": glob["n_eff"], "dsr_market": dsr_m, "dsr_global": dsr_g,
+               "dsr_basis": "global" if strict_global else "market"}
         q, fam_size = self.reg.q_value(user_id, ev["trial_id"])
         t, v, i = ev["test"], ev["validation"], ev["in_sample"]
         wf = ev.get("walk_forward") or {}
@@ -116,8 +131,9 @@ class Validator:
         ratio = (ts / iss) if (ts is not None and iss and iss > 0) else None
         chk("is_oos_decay", ratio, iss is None or iss <= 0 or (ratio is not None and ratio >= R["min_oos_is_ratio"]),
             f"selection/design Sharpe >= {R['min_oos_is_ratio']}", True, "Large decay from design to selection data indicates overfitting.")
-        chk("deflated_sharpe", dsr, (dsr or 0) >= R["min_dsr"], f">= {R['min_dsr']} (expected best of {fam['n_eff']:.1f} unskilled trials: SR {sr0 * math.sqrt(ppy):.2f}/yr)", True,
-            f"Probability the selection-test Sharpe beats the best result expected by luck among {fam['n_eff']:.1f} effective trials ({fam['n_raw']} recorded attempts on {symbol}).")
+        chk("deflated_sharpe", dsr, (dsr or 0) >= R["min_dsr"], f">= {R['min_dsr']} (expected best of {basis}: SR {sr0 * math.sqrt(ppy):.2f}/yr)", True,
+            f"Probability the selection-test Sharpe beats the best result expected by luck among {basis}. "
+            f"Checked per market and across all markets; the stricter one decides.")
         chk("fdr", q, q is not None and q <= R["fdr_q"], f"Benjamini–Yekutieli q <= {R['fdr_q']} across {fam_size} hypotheses", True,
             "False-discovery control across every hypothesis you have tested, valid under any correlation between them.")
         s2 = ev["cost_stress"]["x2"]["sharpe"]

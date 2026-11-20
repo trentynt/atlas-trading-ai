@@ -80,10 +80,25 @@ class TrialRegistry:
             L = min(len(a) for a in group)
             n_eff_research = effective_trials([a[-L:].astype(float) for a in group]) if L > 30 else float(len(group))
             n_eff_research += sum(len(g) for s, g in series.items() if s != start)  # other windows: count fully
-        srs = [r["sr_bar"] for r in rows if r["sr_bar"] is not None]
-        return {"n_raw": int(n_raw), "n_research": len(research), "n_manual": manual,
-                "n_eff": float(max(1.0, n_eff_research + manual)),
+        # Attempts older than the correlation window are NOT dropped: each counts as fully independent
+        # (the conservative choice), so the luck bar keeps rising however many attempts accumulate.
+        tot = self.db.one("SELECT SUM(kind IN ('hypothesis','variant')) r, SUM(kind LIKE 'manual%') m FROM trials "
+                          "WHERE user_id=? AND symbol=?", (user_id, symbol))
+        beyond = max(0, int(tot["r"] or 0) - len(research)) + max(0, int(tot["m"] or 0) - manual)
+        srs = [r["sr_bar"] for r in self.db.query(
+            "SELECT sr_bar FROM trials WHERE user_id=? AND symbol=? AND sr_bar IS NOT NULL", (user_id, symbol))]
+        return {"n_raw": int(n_raw), "n_research": int(tot["r"] or 0), "n_manual": int(tot["m"] or 0),
+                "n_eff": float(max(1.0, n_eff_research + manual + beyond)), "n_beyond_window": beyond,
                 "sr_var": float(np.var(srs, ddof=1)) if len(srs) > 2 else 0.0}
+
+    def global_stats(self, user_id: int) -> dict:
+        """Attempts across EVERY market. Markets are treated as independent of each other (effective
+        counts are summed), which can only make the luck bar higher — the stricter choice."""
+        syms = [r["symbol"] for r in self.db.query("SELECT DISTINCT symbol FROM trials WHERE user_id=?", (user_id,))]
+        per = [self.family_stats(user_id, s) for s in syms]
+        srs = [r["sr_bar"] for r in self.db.query("SELECT sr_bar FROM trials WHERE user_id=? AND sr_bar IS NOT NULL", (user_id,))]
+        return {"n_raw": sum(f["n_raw"] for f in per), "n_eff": float(max(1.0, sum(f["n_eff"] for f in per))),
+                "markets": len(syms), "sr_var": float(np.var(srs, ddof=1)) if len(srs) > 2 else 0.0}
 
     def fdr_family(self, user_id: int) -> list[dict]:
         """All hypothesis-level research trials for the user (the FDR family), with BY q-values."""

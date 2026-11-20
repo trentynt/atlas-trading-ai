@@ -86,10 +86,6 @@ CREATE TABLE IF NOT EXISTS risk_events (
     order_id INTEGER, data_json TEXT
 );
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS waitlist (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
-    markets_json TEXT, experience TEXT, source TEXT
-);
 """
 
 
@@ -286,8 +282,14 @@ def _m3_durable_jobs(db: "Database") -> None:
     db._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id, type, created_at)")
 
 
+def _m4_drop_waitlist(db: "Database") -> None:
+    """Personal-use tool: the product waitlist (and any emails in it) is removed."""
+    db._conn.execute("DROP TABLE IF EXISTS waitlist")
+
+
 MIGRATIONS = [
     (1, _m1_users_trials_holdout),
     (2, _m2_data_quality),
     (3, _m3_durable_jobs),
+    (4, _m4_drop_waitlist),
 ]

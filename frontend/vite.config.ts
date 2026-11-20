@@ -8,8 +8,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: {
-      // Two pages: the SIGNAL app (index.html) and the public landing page (landing.html).
-      input: { app: 'index.html', landing: 'landing.html' },
+      input: { app: 'index.html' },
     },
   },
   server: {

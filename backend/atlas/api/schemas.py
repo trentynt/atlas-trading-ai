@@ -79,10 +79,3 @@ class CycleRequest(BaseModel):
 class RefreshRequest(BaseModel):
     symbols: list[str] | None = None
     full: bool = False
-
-
-class WaitlistRequest(BaseModel):
-    email: str = Field(min_length=5, max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
-    markets: list[Literal['crypto', 'forex', 'stocks', 'etfs', 'options', 'futures']] = Field(default_factory=list, max_length=6)
-    experience: Literal['new', 'intermediate', 'advanced', 'professional'] | None = None
-    source: str | None = Field(None, max_length=40)
