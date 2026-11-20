@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from .api.intraday import router as intraday_router
 from .api.routes import router
 from .config import Settings, get_settings
 from .services import Services
@@ -51,6 +52,7 @@ def create_app(settings: Settings | None = None, providers: dict | None = None, 
         return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"})
 
     app.include_router(router)
+    app.include_router(intraday_router)
     return app
 
 

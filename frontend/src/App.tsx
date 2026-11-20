@@ -11,6 +11,7 @@ import type { Experiment, Market, Overview } from './lib/types'
 import { CommandView } from './views/Command'
 import { ExperimentsView } from './views/Experiments'
 import { ForecastView } from './views/Forecast'
+import { IntradayView } from './views/Intraday'
 import { MarketsView } from './views/Markets'
 import { PortfolioView } from './views/Portfolio'
 import { ResearchView } from './views/Research'
@@ -28,6 +29,7 @@ export const NAV: { key: ViewKey; label: string; hint: string; group: 'Home' | '
   { key: 'strategy', label: 'Strategies', group: 'Research', hint: 'Design and test trading strategies', icon: I(<path d="M3 17l5-5 4 4 8-8M14 8h6v6" />) },
   { key: 'forecast', label: 'Forecasts', group: 'Research', hint: 'Statistical forecasts with honest uncertainty', icon: I(<path d="M3 15c3 0 4-6 7-6s3 4 5 4 3-3 6-3M15 13v6m3-7v7m3-9v9" />) },
   { key: 'experiments', label: 'Discoveries', group: 'Research', hint: 'Every idea tested, the evidence, and the verdict', icon: I(<><path d="M9 3h6M10 3v6L5 18a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3" /><path d="M7.5 14h9" /></>) },
+  { key: 'intraday', label: 'Intraday (MNQ)', group: 'Trading', hint: 'Session replay, paper practice, opening statistics and your journal', icon: I(<><path d="M4 19V5" /><path d="M4 15l4-4 3 3 5-6 4 4" /></>) },
   { key: 'portfolio', label: 'Portfolio', group: 'Trading', hint: 'Simulated paper portfolio — no real money', icon: I(<><rect x="3" y="7" width="18" height="13" rx="2.5" /><path d="M8.5 7V5.5A1.5 1.5 0 0 1 10 4h4a1.5 1.5 0 0 1 1.5 1.5V7M3 12.5h18" /></>) },
   { key: 'risk', label: 'Risk', group: 'Trading', hint: 'Limits, exposure, kill switch and risk events', icon: I(<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3Zm0 5.5v4.5m0 3h.01" />) },
   { key: 'telemetry', label: 'Activity', group: 'System', hint: 'System health, jobs and the audit trail', icon: I(<path d="M3 12h4l3-8 4 16 3-8h4" />) },
@@ -70,7 +72,7 @@ function Shell() {
 
   const o = ov.data
   const Body = { command: CommandView, markets: MarketsView, research: ResearchView, strategy: StrategyView, forecast: ForecastView,
-    portfolio: PortfolioView, risk: RiskView, experiments: ExperimentsView, telemetry: TelemetryView }[view]
+    portfolio: PortfolioView, risk: RiskView, experiments: ExperimentsView, telemetry: TelemetryView, intraday: IntradayView }[view]
   const go = (v: ViewKey, params?: Record<string, string | number | undefined>) => navigate(v, params)
 
   const sidebar = (
@@ -78,8 +80,8 @@ function Shell() {
       <div className="flex items-center gap-3 px-5 pt-5 pb-5">
         <Logo />
         <div className="min-w-0">
-          <div className="text-[16px] leading-tight font-semibold tracking-[0.12em] text-white">SIGNAL</div>
-          <div className="text-[12px] text-ink-300">Research company</div>
+          <div className="text-[16px] leading-tight font-semibold tracking-[0.12em] text-white">ATLAS</div>
+          <div className="text-[12px] text-ink-300">Personal research</div>
         </div>
       </div>
       <button onClick={() => setSearch(true)} className="mx-3 mb-3 flex items-center gap-2 rounded-[10px] bg-white/[0.05] px-3 py-[7px] text-[13px] text-ink-300 ring-1 ring-inset ring-white/[0.05] transition-colors hover:bg-white/[0.08] hover:text-ink-100">
@@ -110,7 +112,7 @@ function Shell() {
       </button>
       <div className="mx-3 mb-4 rounded-[12px] bg-am/[0.07] px-3.5 py-3 ring-1 ring-inset ring-am/15">
         <div className="flex items-center gap-2 text-[12.5px] font-medium text-am"><StatusDot tone="am" />Paper trading only</div>
-        <p className="mt-1 text-[12px] leading-snug text-ink-300">Simulated execution. SIGNAL has no broker connection and cannot move real money.</p>
+        <p className="mt-1 text-[12px] leading-snug text-ink-300">Simulated execution. ATLAS has no broker connection and cannot move real money.</p>
       </div>
     </>
   )
@@ -131,7 +133,7 @@ function Shell() {
           <button className="flex h-9 w-9 items-center justify-center rounded-[10px] text-ink-200 hover:bg-white/[0.06] md:hidden" onClick={() => setMobileNav(true)} aria-label="Open navigation">
             <svg viewBox="0 0 20 20" className="h-5 w-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M3 6h14M3 10h14M3 14h14" /></svg>
           </button>
-          <div className="flex min-w-0 items-center gap-2 md:hidden"><Logo size={26} /><span className="text-[14px] font-semibold tracking-[0.1em]">SIGNAL</span></div>
+          <div className="flex min-w-0 items-center gap-2 md:hidden"><Logo size={26} /><span className="text-[14px] font-semibold tracking-[0.1em]">ATLAS</span></div>
           <div className="hidden min-w-0 text-[13px] text-ink-300 md:block">{NAV.find((n) => n.key === view)?.hint}</div>
           <div className="ml-auto flex items-center gap-2">
             {!connected && <Chip tone="dn" label="Reconnecting…" title="The connection to the SIGNAL research engine dropped. Retrying automatically." />}

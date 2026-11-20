@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 
 /** Hash routing: `#view?key=value`. View keys are the original stable route keys; friendly aliases map onto them. */
-export type ViewKey = 'command' | 'markets' | 'research' | 'strategy' | 'forecast' | 'portfolio' | 'risk' | 'experiments' | 'telemetry'
+export type ViewKey = 'command' | 'markets' | 'research' | 'strategy' | 'forecast' | 'portfolio' | 'risk' | 'experiments' | 'telemetry' | 'intraday'
 
 export const ALIASES: Record<string, ViewKey> = {
   overview: 'command', command: 'command', markets: 'markets', research: 'research', strategies: 'strategy', strategy: 'strategy',
   forecasts: 'forecast', forecast: 'forecast', portfolio: 'portfolio', risk: 'risk', discoveries: 'experiments',
-  experiments: 'experiments', activity: 'telemetry', telemetry: 'telemetry',
+  experiments: 'experiments', activity: 'telemetry', telemetry: 'telemetry', intraday: 'intraday',
 }
 
 export function parseHash(h = location.hash): { view: ViewKey; params: URLSearchParams } {

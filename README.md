@@ -34,6 +34,18 @@ make test       # backend tests (offline, deterministic fake providers)
 make build      # tsc + lint + production build of the frontend
 ```
 
+## Intraday MNQ track (personal learning tool)
+
+```bash
+# 1. Add free keys to backend/.env (see docs/LEARN.md "Adding your data keys"), then download + run the data gate:
+cd backend && set -a && . ./.env && set +a && ../.venv/bin/python -m atlas.futures.gate --download
+# 2. Start the app (two terminals), then open port 5173 → Trading → Intraday (MNQ)
+make backend
+make frontend
+```
+
+The gate exits 0 when passed, 1 when failed, and 2 when not run (missing keys or no data).
+
 ## What's in the box
 
 | Area | Where | Notes |

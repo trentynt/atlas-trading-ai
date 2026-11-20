@@ -177,3 +177,17 @@ def test_daily_cycle_limit_returns_429(client):
     wait_job(client, client.post("/api/jobs/research-cycle", json={"max_hypotheses": 2, "refresh": False}).json()["job_id"])
     r = client.post("/api/jobs/research-cycle", json={"max_hypotheses": 2, "refresh": False})
     assert r.status_code == 429 and "Daily research-cycle limit" in r.json()["detail"]
+
+
+def test_intraday_api_status_stats_and_journal(client):
+    st = client.get("/api/intraday/status").json()
+    assert st["proxy_for"] == "MNQ" and st["bars"] == 0 and st["apex_rules_verified"] is False
+    assert client.get("/api/intraday/stats").status_code == 409  # no minute data yet: explicit, not empty numbers
+    assert client.post("/api/intraday/practice", json={"session_date": "2025-03-04"}).status_code == 400
+    e = client.post("/api/intraday/journal", json={"trade_date": "2025-03-04", "side": "short", "contracts": 1,
+                                                    "entry_price": 18000, "exit_price": 17980}).json()
+    assert e["net"] == 37.76
+    assert client.put(f"/api/intraday/journal/{e['id']}", json={"notes": "followed plan"}).json()["notes"] == "followed plan"
+    assert client.post("/api/intraday/journal", json={"trade_date": "2025-03-04", "contracts": 0.5}).status_code == 400
+    assert client.delete(f"/api/intraday/journal/{e['id']}").status_code == 200
+    assert client.get("/api/intraday/journal").json() == []

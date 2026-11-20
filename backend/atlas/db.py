@@ -297,10 +297,28 @@ def _m5_minute_bars(db: "Database") -> None:
         PRIMARY KEY (symbol, date, source))""")
 
 
+def _m6_practice_journal(db: "Database") -> None:
+    """Bar-by-bar practice sessions, their paper trades, and the manual trade journal. PAPER ONLY."""
+    db._conn.execute("""CREATE TABLE IF NOT EXISTS practice_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, session_date TEXT NOT NULL, symbol TEXT NOT NULL,
+        config_json TEXT NOT NULL, decisions_json TEXT NOT NULL, cursor INTEGER NOT NULL, status TEXT NOT NULL,
+        finished_at TEXT, summary_json TEXT)""")
+    db._conn.execute("""CREATE TABLE IF NOT EXISTS paper_futures_trades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, practice_id INTEGER, session_date TEXT NOT NULL, contract TEXT NOT NULL,
+        side TEXT NOT NULL, contracts INTEGER NOT NULL, entry_ts TEXT NOT NULL, entry_price REAL NOT NULL,
+        exit_ts TEXT, exit_price REAL, exit_reason TEXT, gross REAL, commission REAL, net REAL, data_note TEXT)""")
+    db._conn.execute("""CREATE TABLE IF NOT EXISTS journal_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trade_date TEXT NOT NULL,
+        contract TEXT NOT NULL DEFAULT 'MNQ', side TEXT, contracts INTEGER, entry_time TEXT, entry_price REAL,
+        exit_time TEXT, exit_price REAL, net REAL, setup TEXT, notes TEXT, mistakes TEXT, lesson TEXT,
+        rating INTEGER, paper_trade_id INTEGER)""")
+
+
 MIGRATIONS = [
     (1, _m1_users_trials_holdout),
     (2, _m2_data_quality),
     (3, _m3_durable_jobs),
     (4, _m4_drop_waitlist),
     (5, _m5_minute_bars),
+    (6, _m6_practice_journal),
 ]

@@ -167,3 +167,57 @@ reason backtests look too good. The tests check it three ways:
 `backend/config/apex_rules.toml` is **deliberately empty**: VERIFY on apextraderfunding.com. ATLAS doesn't
 guess prop-firm rules, and the loader refuses the file until you fill it in with the source page and date
 and set `verified = true`. The engine already supports a daily loss limit; plug the verified value in.
+
+## Phase 4: learning tools
+
+Open the app and go to **Trading → Intraday (MNQ)**.
+
+### Bar-by-bar replay
+Pick a past session. You see one 1-minute bar at a time and step forward with **Next bar / +5 / +30**.
+The app never sends bars beyond your cursor, so you cannot peek. This is the safest way to practise
+reading the open without risking money or seeing the answer first.
+
+### Proxy scaling
+QQQ trades around $500 while the Nasdaq-100 index is around 20,000 points. To apply MNQ dollar maths,
+replay prices are multiplied by `ATLAS_PROXY_SCALE` (default 41).
+- **INFERENCE:** the index-to-QQQ ratio has been about 41 recently.
+- Check it yourself: today's Nasdaq-100 level ÷ QQQ's price.
+- It only changes the dollar size of results, never when anything happens.
+
+### Opening statistics (descriptions, not strategies)
+All sizes are in basis points (1 bp = 0.01%) so they carry over from QQQ to NQ. At an index level of
+20,000, 10 bps ≈ 20 points ≈ $40 per MNQ.
+- **Opening range:** the high and low of the first N minutes (5, 15, 30 or 60). How big it usually is, how
+  often price later breaks above or below it, which side breaks first, how long that takes, and where the
+  day closes relative to it.
+- **Overnight gaps:** today's 09:30 open versus yesterday's 15:59 close. How often price trades back to
+  yesterday's close ("fills") the same day, split by gap size, and how long it takes.
+- **Volatility by time of day:** the typical size of a one-minute move in each 15-minute block. Most
+  sessions are busiest near the open and the close.
+
+These describe the past. A high break or fill rate is not, by itself, a trading edge: costs, how far price
+travels after the break, and how often a stop gets hit decide that. Any strategy idea must later go
+through the backtester and the multiple-testing checks.
+
+## Phase 5: paper trading and the journal
+
+### Practice (paper trading on replays)
+During a replay, choose **Long / Short / Flat**. The choice fills at the **next bar's open**, using exactly
+the same engine as the backtester. A test proves a practice session and a backtest with the same decisions
+produce identical trades to the cent. The same rules apply: commission, slippage, whole contracts,
+optional stop and target in ticks, optional daily loss limit, nothing new after 15:50, flat by the close.
+Finished sessions are saved as paper trades.
+
+**Why replays, not live data:**
+- **VERIFIED:** Alpaca's free plan only serves bars older than 15 minutes.
+- Practising on delayed "live" prices would teach the wrong reactions. Replays are honest about being
+  historical.
+
+**PAPER ONLY:** a test scans the code and fails if any trading or order endpoint (Alpaca trading API,
+Tradovate, Rithmic, Interactive Brokers) appears. The only Alpaca host used is market data.
+
+### Journal
+Log every practice trade: date, side, contracts, times and prices, the setup you saw, notes, mistakes,
+the lesson and a 1–5 rating. Net P&L is computed with the same MNQ cost model, e.g. 2 contracts long
+18,000 → 18,010 = **$35.52**. Entries without prices (e.g. "no trade: choppy open") are allowed. Days
+you chose not to trade are worth recording too.
