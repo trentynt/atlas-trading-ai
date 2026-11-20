@@ -60,3 +60,69 @@ Buy 2 MNQ at 18,000.00 and sell at 18,010.00, with $0.62/side commission and 1 t
 
 A 10-point move turned into 9.5 points after slippage, and 7% of the gross went to commission. Costs
 like this are why small, frequent intraday edges often vanish.
+
+## Phase 2: minute data and the data-quality gate
+
+### Why QQQ instead of NQ/MNQ (a PROXY)
+- **VERIFIED** (Yahoo Finance via yfinance docs, 2026-11-20): Yahoo serves 1-minute bars for only about the
+  last 30 days. That is far short of 3 years.
+- **VERIFIED** (Barchart, FirstRate Data, PortaraCQG product pages, 2026-11-20): multi-year 1-minute NQ
+  futures history is sold, not free. QuantConnect staff say exchange licensing prevents them from allowing
+  futures data downloads.
+- So ATLAS uses **QQQ**, the ETF that holds the Nasdaq-100 stocks, as a **proxy** for the index MNQ follows.
+  - **INFERENCE:** QQQ's 1-minute returns during regular hours track NQ very closely. They are not
+    identical: futures trade nearly 24 hours, carry a small premium or discount (the basis) to the index,
+    and QQQ pays dividends.
+  - Everything built on this data is a **proxy** result, labelled as such.
+
+### The sources
+- **Minute bars: Alpaca Market Data API, free plan.**
+  - **VERIFIED** (docs.alpaca.markets, "About Market Data API" and Alpaca staff forum reply, 2026-11-20):
+    the free plan can query full-market SIP bars older than 15 minutes. The docs list history "since 2016",
+    but that figure was not confirmed for the current plan; gate G1 measures it directly.
+  - ATLAS asks for **raw** (unadjusted) prices and keeps only regular-hours bars (09:30–15:59 New York time,
+    each labelled by its start minute).
+- **Independent daily closes: Tiingo end-of-day API, free plan.**
+  - **VERIFIED** (api.tiingo.com product pages, 2026-11-20): the free plan allows 50 requests an hour and
+    1,000 a day, for internal use only.
+  - ATLAS uses the raw `close`, not the dividend-adjusted `adjClose`.
+- **Not used:**
+  - Yahoo's daily endpoint and Stooq both block automated requests (HTTP 429, and a browser check).
+    ATLAS does not disguise itself as a browser to get around that.
+  - The Nasdaq API timed out.
+
+### The gate, and why its thresholds are fixed first
+If you set pass marks after seeing the data, you will (often unconsciously) choose marks the data passes.
+The thresholds sit in `backend/atlas/futures/gate.py` as a read-only table, dated 2026-11-20, and a test
+pins their values.
+
+| Check | Question | Pass mark |
+|---|---|---|
+| G1 | Is there enough history? | ≥ 3 years |
+| G2 | Are sessions complete? | Median session has ≥ 380 of 390 one-minute bars |
+| G3 | Are prices right? | Close of the 15:59 bar within 10 bps (0.10%) of Tiingo's close on ≥ 95% of days |
+| G4 | Are the open and close there? | 09:30 and 15:59 bars both present on ≥ 95% of days |
+
+Trading days come from Tiingo, the **independent** source. A day with no minute data at all is counted
+as a miss, never skipped.
+- **INFERENCE:** G3 is demanding. The official close is set by a closing auction at 16:00, while the 15:59
+  bar ends a minute earlier, so a few volatile closes may differ by more than 10 bps.
+- **INFERENCE:** half-day sessions (13:00 close, about 3 a year) have no 15:59 bar. That is too few to
+  matter at the 95% level.
+
+### Adding your data keys
+Both are free accounts you create yourself:
+1. **Alpaca:** sign up at alpaca.markets and create **paper-trading API keys** (ATLAS only reads market
+   data with them).
+2. **Tiingo:** sign up at tiingo.com and copy your API token.
+3. Add them to `backend/.env`. That file is git-ignored; never commit it.
+   ```
+   ALPACA_API_KEY_ID=...
+   ALPACA_API_SECRET_KEY=...
+   TIINGO_API_KEY=...
+   ```
+4. Download the data and run the gate (3.5 years of history, roughly 30–60 minutes the first time):
+   ```
+   cd backend && set -a && . ./.env && set +a && ../.venv/bin/python -m atlas.futures.gate --download
+   ```
+   Exit code 0 means passed, 1 failed, 2 not run (missing keys or no data).

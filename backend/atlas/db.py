@@ -287,9 +287,20 @@ def _m4_drop_waitlist(db: "Database") -> None:
     db._conn.execute("DROP TABLE IF EXISTS waitlist")
 
 
+def _m5_minute_bars(db: "Database") -> None:
+    """Intraday (1-minute) bars and independent daily closes for the MNQ/QQQ research track."""
+    db._conn.execute("""CREATE TABLE IF NOT EXISTS minute_bars (
+        symbol TEXT NOT NULL, ts TEXT NOT NULL, open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL,
+        close REAL NOT NULL, volume REAL, source TEXT NOT NULL, PRIMARY KEY (symbol, ts))""")
+    db._conn.execute("""CREATE TABLE IF NOT EXISTS reference_daily (
+        symbol TEXT NOT NULL, date TEXT NOT NULL, close REAL NOT NULL, source TEXT NOT NULL,
+        PRIMARY KEY (symbol, date, source))""")
+
+
 MIGRATIONS = [
     (1, _m1_users_trials_holdout),
     (2, _m2_data_quality),
     (3, _m3_durable_jobs),
     (4, _m4_drop_waitlist),
+    (5, _m5_minute_bars),
 ]
